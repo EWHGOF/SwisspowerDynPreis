@@ -2,7 +2,7 @@ name: Swisspower Dyn Preis Installer
 slug: swisspower_dyn_preis_installer
 description: Installiert die Swisspower Dyn Preis Custom Integration in /config/custom_components.
 version: "0.1.0"
-url: "https://esit.code-fabrik.ch/doc_scalar"
+url: "https://github.com/EWHGOF/SwisspowerDynPreis"
 arch:
   - aarch64
   - amd64
