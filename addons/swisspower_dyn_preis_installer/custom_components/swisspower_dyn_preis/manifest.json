@@ -1,0 +1,9 @@
+{
+  "domain": "swisspower_dyn_preis",
+  "name": "Swisspower Dynamischer Preis",
+  "version": "0.1.0",
+  "documentation": "https://esit.code-fabrik.ch/doc_scalar",
+  "config_flow": true,
+  "requirements": [],
+  "codeowners": []
+}

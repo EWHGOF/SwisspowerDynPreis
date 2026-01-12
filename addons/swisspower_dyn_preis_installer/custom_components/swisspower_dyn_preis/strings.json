@@ -1,0 +1,13 @@
+{
+  "config": {
+    "error": {
+      "select_metering_or_tariff": "Please provide either a metering code or a tariff name."
+    },
+    "step": {
+      "user": {
+        "title": "Swisspower dynamic price",
+        "description": "Configure access to the Swisspower ESIT API."
+      }
+    }
+  }
+}
