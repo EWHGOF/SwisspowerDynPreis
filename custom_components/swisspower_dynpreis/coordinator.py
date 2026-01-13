@@ -1,0 +1,73 @@
+"""Data coordinator for Swisspower DynPreis."""
+
+from __future__ import annotations
+
+from datetime import timedelta
+from typing import Any
+
+from aiohttp import ClientError
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.update_coordinator import (
+    DataUpdateCoordinator,
+    UpdateFailed,
+)
+from homeassistant.util import dt as dt_util
+
+from .api import SwisspowerDynPreisApiClient
+from .const import (
+    CONF_METERING_CODE,
+    CONF_METHOD,
+    CONF_TARIFF_NAME,
+    CONF_TARIFF_TYPES,
+    CONF_TOKEN,
+    CONF_UPDATE_INTERVAL,
+    DEFAULT_UPDATE_INTERVAL,
+    DOMAIN,
+)
+
+
+class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Coordinator for Swisspower DynPreis."""
+
+    def __init__(self, hass: HomeAssistant, entry_data: dict[str, Any], options: dict[str, Any]) -> None:
+        self._method = entry_data[CONF_METHOD]
+        self._metering_code = entry_data.get(CONF_METERING_CODE)
+        self._tariff_name = entry_data.get(CONF_TARIFF_NAME)
+        self._tariff_types = entry_data[CONF_TARIFF_TYPES]
+        self._token = entry_data.get(CONF_TOKEN)
+        self._update_minutes = options.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+
+        session = async_get_clientsession(hass)
+        self._client = SwisspowerDynPreisApiClient(session, self._method, self._token)
+
+        super().__init__(
+            hass,
+            name=DOMAIN,
+            update_interval=timedelta(minutes=self._update_minutes),
+        )
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        start = dt_util.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + timedelta(days=1) - timedelta(seconds=1)
+
+        data: dict[str, Any] = {}
+
+        for tariff_type in self._tariff_types:
+            try:
+                response = await self._client.fetch_tariffs(
+                    tariff_type=tariff_type,
+                    start=start,
+                    end=end,
+                    metering_code=self._metering_code,
+                    tariff_name=self._tariff_name,
+                )
+            except (ClientError, ValueError) as err:
+                raise UpdateFailed(f"Failed to fetch tariffs: {err}") from err
+
+            if response.get("status") != "ok":
+                raise UpdateFailed(response.get("message", "Unknown API error"))
+
+            data[tariff_type] = response
+
+        return data
