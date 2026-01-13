@@ -1,0 +1,41 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Swisspower DynPreis einrichten",
+        "description": "Wähle die Abrufmethode für die dynamischen Tarife.",
+        "data": {
+          "name": "Name",
+          "method": "Abrufmethode"
+        }
+      },
+      "metering": {
+        "title": "Messpunktnummer",
+        "description": "Gib deine Messpunktnummer und den Zugangstoken ein.",
+        "data": {
+          "metering_code": "Messpunktnummer",
+          "token": "Token",
+          "tariff_types": "Tariftypen"
+        }
+      },
+      "tariff_name": {
+        "title": "Tarifname",
+        "description": "Gib den Tarifnamen ein (z. B. D1).",
+        "data": {
+          "tariff_name": "Tarifname",
+          "tariff_types": "Tariftypen"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Swisspower DynPreis Optionen",
+        "data": {
+          "update_interval": "Update-Intervall (Minuten)"
+        }
+      }
+    }
+  }
+}
