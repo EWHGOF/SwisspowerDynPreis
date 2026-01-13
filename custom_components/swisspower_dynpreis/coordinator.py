@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from typing import Any
 
@@ -26,6 +27,8 @@ from .const import (
     DOMAIN,
 )
 
+_LOGGER = logging.getLogger(__name__)
+
 
 class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator for Swisspower DynPreis."""
@@ -43,6 +46,7 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         super().__init__(
             hass,
+            _LOGGER,
             name=DOMAIN,
             update_interval=timedelta(minutes=self._update_minutes),
         )
