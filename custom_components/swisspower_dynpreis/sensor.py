@@ -81,8 +81,7 @@ class SwisspowerDynPreisSensor(CoordinatorEntity[SwisspowerDynPreisCoordinator],
     @property
     def native_value(self) -> float | None:
         data = self.coordinator.data.get(self._tariff_type, {})
-        effective_now = _effective_now(self.coordinator.data)
-        slot = _find_slot(data.get("prices", []), effective_now)
+        slot = _find_slot(data.get("prices", []), dt_util.now())
         if not slot:
             return None
         return _extract_slot_value(slot, self._tariff_type)
@@ -90,8 +89,7 @@ class SwisspowerDynPreisSensor(CoordinatorEntity[SwisspowerDynPreisCoordinator],
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         data = self.coordinator.data.get(self._tariff_type, {})
-        effective_now = _effective_now(self.coordinator.data)
-        slot = _find_slot(data.get("prices", []), effective_now) if effective_now else None
+        slot = _find_slot(data.get("prices", []), dt_util.now())
         current_start = None
         current_end = None
         current_value = None
@@ -117,16 +115,6 @@ def _find_slot(slots: list[dict[str, Any]], now: datetime) -> dict[str, Any] | N
         if start <= now <= end:
             return slot
     return None
-
-
-def _effective_now(data: dict[str, Any]) -> datetime:
-    effective_now = data.get("_effective_now")
-    if effective_now is None:
-        window = data.get("_window", {})
-        effective_now = window.get("start")
-    if effective_now is None:
-        effective_now = dt_util.now()
-    return effective_now
 
 
 def _extract_slot_value(slot: dict[str, Any], tariff_type: str) -> float | None:
