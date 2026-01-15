@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from urllib.parse import quote, urlencode
 
 import async_timeout
 from aiohttp import ClientSession
@@ -54,9 +55,10 @@ class SwisspowerDynPreisApiClient:
         else:
             params["tariff_name"] = tariff_name
 
-        url = f"{self._api_base}{path}"
+        query = urlencode(params, quote_via=quote)
+        url = f"{self._api_base}{path}?{query}"
 
         async with async_timeout.timeout(TIMEOUT_SECONDS):
-            async with self._session.get(url, params=params, headers=headers) as response:
+            async with self._session.get(url, headers=headers) as response:
                 response.raise_for_status()
                 return await response.json()
