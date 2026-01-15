@@ -1,6 +1,6 @@
 # Swisspower DynPreis
 
-Home-Assistant-Integration zum Abruf der dynamischen Tarife über die Swisspower ESIT API.
+Home-Assistant-Integration zum periodischen Abruf der dynamischen Tarife über die Swisspower ESIT API.
 
 ## Installation (HACS)
 
@@ -14,7 +14,7 @@ Home-Assistant-Integration zum Abruf der dynamischen Tarife über die Swisspower
 Nach der Installation kann die Integration über **Einstellungen → Geräte & Dienste** hinzugefügt werden.
 Ein Wizard führt durch die Konfiguration:
 
-- **Messpunktnummer** (Metering Code) und **Token** für den produktiven API-Zugriff oder
+- **Messpunktnummer** (Metering Code) und **Authentifizierungstoken** für den produktiven API-Zugriff oder
 - **Tarifname** (z. B. D1) ohne Token.
 
 Zusätzlich können die gewünschten Tariftypen ausgewählt werden (electricity, grid, dso, integrated, feed_in).
@@ -26,7 +26,7 @@ in CHF/kWh. Die vollständigen Tarif-Slots werden im Attribut `prices` bereitges
 
 ## Optionen
 
-In den Optionen kann das Update-Intervall (in Minuten) angepasst werden.
+In den Optionen kann das Update-Intervall (in Minuten) für den periodischen Abruf angepasst werden.
 
 ## API-Dokumentation
 
