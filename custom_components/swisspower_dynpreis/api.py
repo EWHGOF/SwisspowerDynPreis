@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from datetime import datetime
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -12,6 +14,8 @@ from homeassistant.util import dt as dt_util
 from yarl import URL
 
 from .const import API_BASE, METHOD_METERING_CODE, TIMEOUT_SECONDS
+
+LOGGER = logging.getLogger(__name__)
 
 
 class SwisspowerDynPreisApiClient:
@@ -63,5 +67,23 @@ class SwisspowerDynPreisApiClient:
 
         async with async_timeout.timeout(TIMEOUT_SECONDS):
             async with self._session.get(url, headers=headers) as response:
+                response_text = await response.text()
+                LOGGER.info(
+                    "SwisspowerDynPreis API request: method=GET url=%s headers=%s",
+                    url,
+                    headers,
+                )
+                LOGGER.info(
+                    "SwisspowerDynPreis API response: status=%s headers=%s body=%s",
+                    response.status,
+                    dict(response.headers),
+                    response_text,
+                )
                 response.raise_for_status()
-                return await response.json()
+                try:
+                    response_data: Any = json.loads(response_text)
+                except json.JSONDecodeError:
+                    response_data = {"raw": response_text}
+                if not isinstance(response_data, dict):
+                    response_data = {"data": response_data}
+                return response_data
