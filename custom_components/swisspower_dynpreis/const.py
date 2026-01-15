@@ -4,6 +4,7 @@ DOMAIN = "swisspower_dynpreis"
 DEFAULT_NAME = "Swisspower DynPreis"
 
 CONF_METHOD = "method"
+CONF_API_URL = "api_url"
 CONF_METERING_CODE = "metering_code"
 CONF_TARIFF_NAME = "tariff_name"
 CONF_TARIFF_TYPES = "tariff_types"

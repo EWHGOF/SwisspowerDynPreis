@@ -19,10 +19,12 @@ from .api import SwisspowerDynPreisApiClient
 from .const import (
     CONF_METERING_CODE,
     CONF_METHOD,
+    CONF_API_URL,
     CONF_TARIFF_NAME,
     CONF_TARIFF_TYPES,
     CONF_TOKEN,
     CONF_UPDATE_INTERVAL,
+    API_BASE,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
 )
@@ -35,6 +37,7 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def __init__(self, hass: HomeAssistant, entry_data: dict[str, Any], options: dict[str, Any]) -> None:
         self._method = entry_data[CONF_METHOD]
+        self._api_url = entry_data.get(CONF_API_URL, API_BASE)
         self._metering_code = entry_data.get(CONF_METERING_CODE)
         self._tariff_name = entry_data.get(CONF_TARIFF_NAME)
         self._tariff_types = entry_data[CONF_TARIFF_TYPES]
@@ -42,7 +45,12 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._update_minutes = options.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
 
         session = async_get_clientsession(hass)
-        self._client = SwisspowerDynPreisApiClient(session, self._method, self._token)
+        self._client = SwisspowerDynPreisApiClient(
+            session,
+            self._method,
+            self._token,
+            api_base=self._api_url,
+        )
 
         super().__init__(
             hass,
