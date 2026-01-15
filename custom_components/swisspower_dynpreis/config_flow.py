@@ -51,7 +51,9 @@ class SwisspowerDynPreisConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {
                 vol.Optional(CONF_NAME, default=DEFAULT_NAME): str,
+
                 vol.Required(CONF_API_URL, default=API_BASE): str,
+
                 vol.Required(CONF_METHOD, default=METHOD_METERING_CODE): vol.In(
                     {
                         METHOD_METERING_CODE: "Authentifizierungstoken (Messpunktnummer)",
