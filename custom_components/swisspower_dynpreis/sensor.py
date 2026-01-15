@@ -27,15 +27,28 @@ async def async_setup_entry(
     name = entry.title or DEFAULT_NAME
 
     tariff_types = entry.data[CONF_TARIFF_TYPES]
-    entities = [
-        SwisspowerDynPreisSensor(
-            coordinator=coordinator,
-            entry_id=entry.entry_id,
-            name=name,
-            tariff_type=tariff_type,
+    entities: list[SwisspowerDynPreisSensor] = []
+    component_map = _collect_components(coordinator.data, tariff_types)
+    for tariff_type in tariff_types:
+        entities.append(
+            SwisspowerDynPreisSensor(
+                coordinator=coordinator,
+                entry_id=entry.entry_id,
+                name=name,
+                tariff_type=tariff_type,
+                component=None,
+            )
         )
-        for tariff_type in tariff_types
-    ]
+        for component in sorted(component_map.get(tariff_type, set())):
+            entities.append(
+                SwisspowerDynPreisSensor(
+                    coordinator=coordinator,
+                    entry_id=entry.entry_id,
+                    name=name,
+                    tariff_type=tariff_type,
+                    component=component,
+                )
+            )
 
     async_add_entities(entities)
 
@@ -52,11 +65,13 @@ class SwisspowerDynPreisSensor(CoordinatorEntity[SwisspowerDynPreisCoordinator],
         entry_id: str,
         name: str,
         tariff_type: str,
+        component: str | None,
     ) -> None:
         super().__init__(coordinator)
         self._entry_id = entry_id
         self._name = name
         self._tariff_type = tariff_type
+        self._component = component
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -68,10 +83,14 @@ class SwisspowerDynPreisSensor(CoordinatorEntity[SwisspowerDynPreisCoordinator],
 
     @property
     def name(self) -> str:
+        if self._component:
+            return f"{self._name} {self._tariff_type} {self._component}"
         return f"{self._name} {self._tariff_type}"
 
     @property
     def unique_id(self) -> str:
+        if self._component:
+            return f"{self._entry_id}_{self._tariff_type}_{self._component}"
         return f"{self._entry_id}_{self._tariff_type}"
 
     @property
@@ -84,7 +103,7 @@ class SwisspowerDynPreisSensor(CoordinatorEntity[SwisspowerDynPreisCoordinator],
         slot = _find_slot(data.get("prices", []), dt_util.now())
         if not slot:
             return None
-        return _extract_slot_value(slot, self._tariff_type)
+        return _extract_slot_value(slot, self._tariff_type, self._component)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -96,9 +115,10 @@ class SwisspowerDynPreisSensor(CoordinatorEntity[SwisspowerDynPreisCoordinator],
         if slot:
             current_start = slot.get("start_timestamp")
             current_end = slot.get("end_timestamp")
-            current_value = _extract_slot_value(slot, self._tariff_type)
+            current_value = _extract_slot_value(slot, self._tariff_type, self._component)
         return {
             "tariff_type": self._tariff_type,
+            "component": self._component,
             "prices": data.get("prices", []),
             "current_start_timestamp": current_start,
             "current_end_timestamp": current_end,
@@ -117,18 +137,54 @@ def _find_slot(slots: list[dict[str, Any]], now: datetime) -> dict[str, Any] | N
     return None
 
 
-def _extract_slot_value(slot: dict[str, Any], tariff_type: str) -> float | None:
-    if isinstance(slot.get("value"), (int, float)):
+def _extract_slot_value(
+    slot: dict[str, Any],
+    tariff_type: str,
+    component: str | None,
+) -> float | None:
+    if component is None and isinstance(slot.get("value"), (int, float)):
         return slot.get("value")
     prices = slot.get(tariff_type)
     if isinstance(prices, list):
         for price in prices:
             if not isinstance(price, dict):
                 continue
-            if price.get("unit") == "CHF/kWh" and price.get("component") == "work":
+            if component is not None and price.get("component") != component:
+                continue
+            if price.get("unit") == "CHF/kWh" and price.get("value") is not None:
                 return price.get("value")
             if price.get("value") is not None:
                 return price.get("value")
-    if slot.get("unit") == "CHF/kWh" and slot.get("component") in (None, "work"):
-        return slot.get("value")
+    if slot.get("unit") == "CHF/kWh":
+        if component is None and slot.get("component") in (None, "work"):
+            return slot.get("value")
+        if component is not None and slot.get("component") == component:
+            return slot.get("value")
     return None
+
+
+def _collect_components(
+    data: dict[str, Any],
+    tariff_types: list[str],
+) -> dict[str, set[str]]:
+    components: dict[str, set[str]] = {tariff_type: set() for tariff_type in tariff_types}
+    for tariff_type in tariff_types:
+        tariff_data = data.get(tariff_type, {})
+        slots = tariff_data.get("prices", [])
+        if not isinstance(slots, list):
+            continue
+        for slot in slots:
+            if not isinstance(slot, dict):
+                continue
+            prices = slot.get(tariff_type)
+            if isinstance(prices, list):
+                for price in prices:
+                    if not isinstance(price, dict):
+                        continue
+                    component = price.get("component")
+                    if isinstance(component, str) and component:
+                        components[tariff_type].add(component)
+            component = slot.get("component")
+            if isinstance(component, str) and component:
+                components[tariff_type].add(component)
+    return components
