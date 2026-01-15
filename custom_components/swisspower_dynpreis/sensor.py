@@ -36,6 +36,15 @@ async def async_setup_entry(
         )
         for tariff_type in tariff_types
     ]
+    entities.extend(
+        SwisspowerDynPreisScheduleSensor(
+            coordinator=coordinator,
+            entry_id=entry.entry_id,
+            name=name,
+            tariff_type=tariff_type,
+        )
+        for tariff_type in tariff_types
+    )
 
     async_add_entities(entities)
 
@@ -103,6 +112,59 @@ class SwisspowerDynPreisSensor(CoordinatorEntity[SwisspowerDynPreisCoordinator],
             "current_start_timestamp": current_start,
             "current_end_timestamp": current_end,
             "current_value": current_value,
+        }
+
+
+class SwisspowerDynPreisScheduleSensor(
+    CoordinatorEntity[SwisspowerDynPreisCoordinator], SensorEntity
+):
+    """Representation of a Swisspower DynPreis schedule."""
+
+    _attr_should_poll = False
+
+    def __init__(
+        self,
+        *,
+        coordinator: SwisspowerDynPreisCoordinator,
+        entry_id: str,
+        name: str,
+        tariff_type: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._entry_id = entry_id
+        self._name = name
+        self._tariff_type = tariff_type
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry_id)},
+            name=self._name,
+            manufacturer="Swisspower",
+        )
+
+    @property
+    def name(self) -> str:
+        return f"{self._name} {self._tariff_type} schedule"
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_{self._tariff_type}_schedule"
+
+    @property
+    def native_value(self) -> int | None:
+        data = self.coordinator.data.get(self._tariff_type, {})
+        prices = data.get("prices")
+        if isinstance(prices, list):
+            return len(prices)
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = self.coordinator.data.get(self._tariff_type, {})
+        return {
+            "tariff_type": self._tariff_type,
+            "prices": data.get("prices", []),
         }
 
 
