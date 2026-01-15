@@ -1,0 +1,16 @@
+# Codex Effiziente Programmierung
+
+## Grundsätze
+- Arbeite iterativ in kleinen, nachvollziehbaren Schritten.
+- Halte Änderungen fokussiert und gut begründet.
+- Bevorzuge klare, wartbare Lösungen gegenüber komplexen Abkürzungen.
+
+## Arbeitsweise
+- Lies vorhandenen Code und Dokumentation, bevor du Änderungen vorschlägst.
+- Nutze strukturierte Antworten mit kurzen Zusammenfassungen und klaren Listen.
+- Ergänze neue Funktionen mit passenden Tests, sofern möglich.
+
+## Testing
+- Wenn neue Features hinzugefügt werden, erstelle entsprechende Tests.
+- Führe relevante Tests lokal aus und dokumentiere die Ergebnisse.
+- Falls Tests nicht ausgeführt werden können, begründe dies nachvollziehbar.
