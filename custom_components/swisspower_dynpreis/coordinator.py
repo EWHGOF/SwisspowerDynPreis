@@ -61,7 +61,7 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         start = dt_util.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        end = start + timedelta(days=1) - timedelta(seconds=1)
+        end = start + timedelta(days=2) - timedelta(seconds=1)
 
         data: dict[str, Any] = {}
 
