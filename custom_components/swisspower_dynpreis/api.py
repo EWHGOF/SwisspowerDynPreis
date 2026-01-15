@@ -9,6 +9,7 @@ from urllib.parse import quote, urlencode
 import async_timeout
 from aiohttp import ClientSession
 from homeassistant.util import dt as dt_util
+from yarl import URL
 
 from .const import API_BASE, METHOD_METERING_CODE, TIMEOUT_SECONDS
 
@@ -38,8 +39,8 @@ class SwisspowerDynPreisApiClient:
         tariff_name: str | None = None,
     ) -> dict[str, Any]:
         """Fetch tariffs for a given tariff type."""
-        start_timestamp = quote(dt_util.as_local(start).isoformat(), safe="")
-        end_timestamp = quote(dt_util.as_local(end).isoformat(), safe="")
+        start_timestamp = dt_util.as_local(start).isoformat()
+        end_timestamp = dt_util.as_local(end).isoformat()
         params: dict[str, Any] = {
             "tariff_type": tariff_type,
             "start_timestamp": start_timestamp,
@@ -57,8 +58,8 @@ class SwisspowerDynPreisApiClient:
         else:
             params["tariff_name"] = tariff_name
 
-        query = urlencode(params, quote_via=quote, safe="%")
-        url = f"{self._api_base}{path}?{query}"
+        query = urlencode(params, quote_via=quote, safe="")
+        url = URL(f"{self._api_base}{path}?{query}", encoded=True)
 
         async with async_timeout.timeout(TIMEOUT_SECONDS):
             async with self._session.get(url, headers=headers) as response:
