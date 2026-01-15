@@ -81,26 +81,30 @@ class SwisspowerDynPreisSensor(CoordinatorEntity[SwisspowerDynPreisCoordinator],
     @property
     def native_value(self) -> float | None:
         data = self.coordinator.data.get(self._tariff_type, {})
-        effective_now = self.coordinator.data.get("_effective_now")
-        if effective_now is None:
-            window = self.coordinator.data.get("_window", {})
-            effective_now = window.get("start")
-        if effective_now is None:
-            effective_now = dt_util.now()
+        effective_now = _effective_now(self.coordinator.data)
         slot = _find_slot(data.get("prices", []), effective_now)
         if not slot:
             return None
-        for price in slot.get(self._tariff_type, []) or []:
-            if price.get("unit") == "CHF/kWh" and price.get("component") == "work":
-                return price.get("value")
-        return None
+        return _extract_slot_value(slot, self._tariff_type)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         data = self.coordinator.data.get(self._tariff_type, {})
+        effective_now = _effective_now(self.coordinator.data)
+        slot = _find_slot(data.get("prices", []), effective_now) if effective_now else None
+        current_start = None
+        current_end = None
+        current_value = None
+        if slot:
+            current_start = slot.get("start_timestamp")
+            current_end = slot.get("end_timestamp")
+            current_value = _extract_slot_value(slot, self._tariff_type)
         return {
             "tariff_type": self._tariff_type,
             "prices": data.get("prices", []),
+            "current_start_timestamp": current_start,
+            "current_end_timestamp": current_end,
+            "current_value": current_value,
         }
 
 
@@ -112,4 +116,31 @@ def _find_slot(slots: list[dict[str, Any]], now: datetime) -> dict[str, Any] | N
             continue
         if start <= now <= end:
             return slot
+    return None
+
+
+def _effective_now(data: dict[str, Any]) -> datetime:
+    effective_now = data.get("_effective_now")
+    if effective_now is None:
+        window = data.get("_window", {})
+        effective_now = window.get("start")
+    if effective_now is None:
+        effective_now = dt_util.now()
+    return effective_now
+
+
+def _extract_slot_value(slot: dict[str, Any], tariff_type: str) -> float | None:
+    if isinstance(slot.get("value"), (int, float)):
+        return slot.get("value")
+    prices = slot.get(tariff_type)
+    if isinstance(prices, list):
+        for price in prices:
+            if not isinstance(price, dict):
+                continue
+            if price.get("unit") == "CHF/kWh" and price.get("component") == "work":
+                return price.get("value")
+            if price.get("value") is not None:
+                return price.get("value")
+    if slot.get("unit") == "CHF/kWh" and slot.get("component") in (None, "work"):
+        return slot.get("value")
     return None
