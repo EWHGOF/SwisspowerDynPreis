@@ -51,8 +51,8 @@ class SwisspowerDynPreisConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_API_URL, default=API_BASE): vol.Url(),
                 vol.Required(CONF_METHOD, default=METHOD_METERING_CODE): vol.In(
                     {
-                        METHOD_METERING_CODE: "Messpunktnummer",
-                        METHOD_TARIFF_NAME: "Tarifname",
+                        METHOD_METERING_CODE: "Authentifizierungstoken (Messpunktnummer)",
+                        METHOD_TARIFF_NAME: "Tarifname (ohne Token)",
                     }
                 ),
             }

@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Swisspower DynPreis einrichten",
-        "description": "Wähle die Abrufmethode für die dynamischen Tarife.",
+        "description": "Wähle die Abrufmethode für die dynamischen Tarife (Tarifname oder Authentifizierungstoken).",
         "data": {
           "name": "Name",
           "api_url": "API-URL",
@@ -11,8 +11,8 @@
         }
       },
       "metering": {
-        "title": "Messpunktnummer",
-        "description": "Gib deine Messpunktnummer und den Zugangstoken ein.",
+        "title": "Authentifizierungstoken",
+        "description": "Gib deine Messpunktnummer und den Authentifizierungstoken ein.",
         "data": {
           "metering_code": "Messpunktnummer",
           "token": "Token",
