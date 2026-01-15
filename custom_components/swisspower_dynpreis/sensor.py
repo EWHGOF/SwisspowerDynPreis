@@ -81,7 +81,13 @@ class SwisspowerDynPreisSensor(CoordinatorEntity[SwisspowerDynPreisCoordinator],
     @property
     def native_value(self) -> float | None:
         data = self.coordinator.data.get(self._tariff_type, {})
-        slot = _find_slot(data.get("prices", []), dt_util.now())
+        effective_now = self.coordinator.data.get("_effective_now")
+        if effective_now is None:
+            window = self.coordinator.data.get("_window", {})
+            effective_now = window.get("start")
+        if effective_now is None:
+            effective_now = dt_util.now()
+        slot = _find_slot(data.get("prices", []), effective_now)
         if not slot:
             return None
         for price in slot.get(self._tariff_type, []) or []:
@@ -96,6 +102,7 @@ class SwisspowerDynPreisSensor(CoordinatorEntity[SwisspowerDynPreisCoordinator],
             "tariff_type": self._tariff_type,
             "prices": data.get("prices", []),
         }
+
 
 def _find_slot(slots: list[dict[str, Any]], now: datetime) -> dict[str, Any] | None:
     for slot in slots:
