@@ -38,10 +38,12 @@ class SwisspowerDynPreisApiClient:
         tariff_name: str | None = None,
     ) -> dict[str, Any]:
         """Fetch tariffs for a given tariff type."""
+        start_timestamp = quote(dt_util.as_local(start).isoformat(), safe="")
+        end_timestamp = quote(dt_util.as_local(end).isoformat(), safe="")
         params: dict[str, Any] = {
             "tariff_type": tariff_type,
-            "start_timestamp": dt_util.as_local(start).isoformat(),
-            "end_timestamp": dt_util.as_local(end).isoformat(),
+            "start_timestamp": start_timestamp,
+            "end_timestamp": end_timestamp,
         }
 
         headers: dict[str, str] = {}
@@ -55,7 +57,7 @@ class SwisspowerDynPreisApiClient:
         else:
             params["tariff_name"] = tariff_name
 
-        query = urlencode(params, quote_via=quote)
+        query = urlencode(params, quote_via=quote, safe="%")
         url = f"{self._api_base}{path}?{query}"
 
         async with async_timeout.timeout(TIMEOUT_SECONDS):
