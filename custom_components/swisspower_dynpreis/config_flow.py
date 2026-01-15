@@ -11,6 +11,8 @@ from homeassistant.const import CONF_NAME
 from homeassistant.helpers import config_validation as cv
 
 from .const import (
+    API_BASE,
+    CONF_API_URL,
     CONF_METERING_CODE,
     CONF_METHOD,
     CONF_TARIFF_NAME,
@@ -37,6 +39,7 @@ class SwisspowerDynPreisConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self._method = user_input[CONF_METHOD]
             self._name = user_input.get(CONF_NAME, DEFAULT_NAME)
+            self._api_url = user_input[CONF_API_URL]
 
             if self._method == METHOD_METERING_CODE:
                 return await self.async_step_metering()
@@ -45,6 +48,7 @@ class SwisspowerDynPreisConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {
                 vol.Optional(CONF_NAME, default=DEFAULT_NAME): str,
+                vol.Required(CONF_API_URL, default=API_BASE): cv.url,
                 vol.Required(CONF_METHOD, default=METHOD_METERING_CODE): vol.In(
                     {
                         METHOD_METERING_CODE: "Messpunktnummer",
@@ -64,6 +68,7 @@ class SwisspowerDynPreisConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data={
                     CONF_NAME: self._name,
                     CONF_METHOD: METHOD_METERING_CODE,
+                    CONF_API_URL: self._api_url,
                     CONF_METERING_CODE: user_input[CONF_METERING_CODE],
                     CONF_TOKEN: user_input[CONF_TOKEN],
                     CONF_TARIFF_TYPES: user_input[CONF_TARIFF_TYPES],
@@ -88,6 +93,7 @@ class SwisspowerDynPreisConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data={
                     CONF_NAME: self._name,
                     CONF_METHOD: METHOD_TARIFF_NAME,
+                    CONF_API_URL: self._api_url,
                     CONF_TARIFF_NAME: user_input[CONF_TARIFF_NAME],
                     CONF_TARIFF_TYPES: user_input[CONF_TARIFF_TYPES],
                 },

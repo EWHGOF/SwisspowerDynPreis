@@ -6,6 +6,7 @@
         "description": "Wähle die Abrufmethode für die dynamischen Tarife.",
         "data": {
           "name": "Name",
+          "api_url": "API-URL",
           "method": "Abrufmethode"
         }
       },
