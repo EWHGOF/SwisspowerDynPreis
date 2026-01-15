@@ -39,16 +39,21 @@ class SwisspowerDynPreisConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self._method = user_input[CONF_METHOD]
             self._name = user_input.get(CONF_NAME, DEFAULT_NAME)
-            self._api_url = user_input[CONF_API_URL]
-
-            if self._method == METHOD_METERING_CODE:
-                return await self.async_step_metering()
-            return await self.async_step_tariff_name()
+            try:
+                self._api_url = cv.url(user_input[CONF_API_URL])
+            except vol.Invalid:
+                errors[CONF_API_URL] = "invalid_url"
+            else:
+                if self._method == METHOD_METERING_CODE:
+                    return await self.async_step_metering()
+                return await self.async_step_tariff_name()
 
         schema = vol.Schema(
             {
                 vol.Optional(CONF_NAME, default=DEFAULT_NAME): str,
-                vol.Required(CONF_API_URL, default=API_BASE): cv.url,
+
+                vol.Required(CONF_API_URL, default=API_BASE): str,
+
                 vol.Required(CONF_METHOD, default=METHOD_METERING_CODE): vol.In(
                     {
                         METHOD_METERING_CODE: "Authentifizierungstoken (Messpunktnummer)",
