@@ -76,10 +76,7 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         end = start + timedelta(days=2) - timedelta(seconds=1)
 
-        data: dict[str, Any] = {
-            "_effective_now": now,
-            "_window": {"start": start, "end": end},
-        }
+        data: dict[str, Any] = {}
 
         for tariff_type in self._tariff_types:
             try:
