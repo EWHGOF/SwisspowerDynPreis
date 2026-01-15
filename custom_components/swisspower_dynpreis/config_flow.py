@@ -19,6 +19,7 @@ from .const import (
     CONF_TARIFF_TYPES,
     CONF_TOKEN,
     CONF_UPDATE_INTERVAL,
+    CONF_QUERY_YEAR,
     DEFAULT_NAME,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
@@ -135,6 +136,10 @@ class SwisspowerDynPreisOptionsFlowHandler(config_entries.OptionsFlow):
                         CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
                     ),
                 ): vol.All(vol.Coerce(int), vol.Range(min=5, max=1440)),
+                vol.Optional(
+                    CONF_QUERY_YEAR,
+                    default=self._config_entry.options.get(CONF_QUERY_YEAR),
+                ): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=2000, max=2100))),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)

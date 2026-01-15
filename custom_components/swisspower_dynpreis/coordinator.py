@@ -24,6 +24,7 @@ from .const import (
     CONF_TARIFF_TYPES,
     CONF_TOKEN,
     CONF_UPDATE_INTERVAL,
+    CONF_QUERY_YEAR,
     API_BASE,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
@@ -43,6 +44,7 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tariff_types = entry_data[CONF_TARIFF_TYPES]
         self._token = entry_data.get(CONF_TOKEN)
         self._update_minutes = options.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+        self._query_year = options.get(CONF_QUERY_YEAR)
 
         session = async_get_clientsession(hass)
         self._client = SwisspowerDynPreisApiClient(
@@ -60,7 +62,18 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     async def _async_update_data(self) -> dict[str, Any]:
-        start = dt_util.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        now = dt_util.now()
+        query_year = self._query_year
+        if isinstance(query_year, str):
+            query_year = query_year.strip() or None
+            if query_year is not None:
+                query_year = int(query_year)
+        if isinstance(query_year, int):
+            try:
+                now = now.replace(year=query_year)
+            except ValueError:
+                now = now.replace(year=query_year, day=28)
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         end = start + timedelta(days=2) - timedelta(seconds=1)
 
         data: dict[str, Any] = {}

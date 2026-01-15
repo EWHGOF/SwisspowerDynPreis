@@ -10,6 +10,7 @@ CONF_TARIFF_NAME = "tariff_name"
 CONF_TARIFF_TYPES = "tariff_types"
 CONF_TOKEN = "token"
 CONF_UPDATE_INTERVAL = "update_interval"
+CONF_QUERY_YEAR = "query_year"
 
 METHOD_METERING_CODE = "metering_code"
 METHOD_TARIFF_NAME = "tariff_name"
