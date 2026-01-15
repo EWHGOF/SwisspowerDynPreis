@@ -32,3 +32,6 @@ In den Optionen kann das Update-Intervall (in Minuten) für den periodischen Abr
 
 Die API-Dokumentation findet sich unter:
 https://esit.code-fabrik.ch/doc_scalar
+
+Für Tests (z. B. bei von Codex generiertem Code) kann folgende Basis-URL verwendet werden:
+https://esit-test.code-fabrik.ch/api/v1
