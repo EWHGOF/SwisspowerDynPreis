@@ -1,6 +1,13 @@
-# Swisspower DynPreis
+# Swisspower Dynamischer Strompreis API
 
-Home-Assistant-Integration zum periodischen Abruf der dynamischen Tarife über die Swisspower ESIT API.
+Home-Assistant-Integration zum periodischen Abruf der dynamischen Tarife für das Abrufen von Dynamischen Strompreisen welche den Swisspower Standard folgen.
+Energieversorger welche diesen Standard einhalten:
+  TBD
+
+
+
+Wichtig: das ist meine Erste Integration ich bitte um unterstützung.
+
 
 ## Installation (HACS)
 
@@ -15,9 +22,14 @@ Nach der Installation kann die Integration über **Einstellungen → Geräte & D
 Ein Wizard führt durch die Konfiguration:
 
 - **Messpunktnummer** (Metering Code) und **Authentifizierungstoken** für den produktiven API-Zugriff oder
-- **Tarifname** (z. B. D1) ohne Token.
+- **Tarifname** (z. B. D1) ohne Token. 
 
 Zusätzlich können die gewünschten Tariftypen ausgewählt werden (electricity, grid, dso, integrated, feed_in).
+
+Electricity = Der Preis für die Energie
+Grid = Netznutzung
+Integrated = die Summe von allen Bestandteilen. Inklusive abgaben.
+Feed_in = ist der Preis für die Rückvergütung von erzeugter energie.
 
 ## Sensoren
 
@@ -26,12 +38,22 @@ in CHF/kWh. Die vollständigen Tarif-Slots werden im Attribut `prices` bereitges
 
 ## Optionen
 
-In den Optionen kann das Update-Intervall (in Minuten) für den periodischen Abruf angepasst werden.
+In den Optionen kann das Update-Intervall (in Minuten dies sollte standatmässig auf 6 Stunden eingestellt werden ) für den periodischen Abruf angepasst werden.
+  Auf eine Zeitbasierte Abfrage wurde verzichtet. Da Unterschiedliche Energieversorger die Daten zu unterschiedlichen Zeitpunkten veröffentlichen.
 
-## API-Dokumentation
+## Weiterführende Links 
 
 Die API-Dokumentation findet sich unter:
 https://esit.code-fabrik.ch/doc_scalar
 
 Für Tests (z. B. bei von Codex generiertem Code) kann folgende Basis-URL verwendet werden:
 https://esit-test.code-fabrik.ch/api/v1
+
+übersicht EVU mit Dynamischen Tarifen:
+https://smartgridready.ch/loesungen/dynamischetarife
+
+Weiterführende Intressante Website:
+https://dynamische-stromtarife.ch/
+
+
+
