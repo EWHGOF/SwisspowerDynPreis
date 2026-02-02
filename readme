@@ -32,8 +32,17 @@ Feed_in = ist der Preis für die Rückvergütung von erzeugter energie.
 
 ## Sensoren
 
-Für jeden ausgewählten Tariftyp wird ein Sensor erstellt. Der Sensorwert zeigt den aktuellen Arbeitspreis
-in CHF/kWh. Die vollständigen Tarif-Slots werden im Attribut `prices` bereitgestellt.
+Für jeden ausgewählten Tariftyp werden zusätzliche Sensoren erstellt:
+
+- **Current price** (CHF/kWh): aktueller Arbeitspreis, inklusive der kompletten Tarif-Slots im Attribut `prices`.
+- **Next change** (Timestamp): Zeitpunkt, wann der aktuelle Preis endet.
+- **Average price today** (CHF/kWh): Durchschnittspreis heute (inkl. min/max/average Statistik).
+- **Average price tomorrow** (CHF/kWh): Durchschnittspreis morgen (inkl. Statistik, standardmässig deaktiviert).
+- **Lowest 2h/4h window today/tomorrow** (CHF/kWh): günstigste 2h/4h-Window (standardmässig deaktiviert).
+- **Highest 2h/4h window today/tomorrow** (CHF/kWh): teuerste 2h/4h-Window (standardmässig deaktiviert).
+- **Cheapest 10/25/50% hours today** (Binary): Ein, wenn die aktuelle Stunde zu den günstigsten 10/25/50% gehört.
+- **Most expensive 10/25% hours today** (Binary): Ein, wenn die aktuelle Stunde zu den teuersten 10/25% gehört.
+- **In cheapest/most expensive 2h/4h window today** (Binary): Ein, wenn die aktuelle Stunde im günstigsten/teuersten Window liegt.
 
 ## Optionen
 
@@ -53,6 +62,5 @@ https://smartgridready.ch/loesungen/dynamischetarife
 
 Weiterführende Intressante Website:
 https://dynamische-stromtarife.ch/
-
 
 
