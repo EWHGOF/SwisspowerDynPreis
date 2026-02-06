@@ -34,7 +34,7 @@
       "init": {
         "title": "Swisspower DynPreis Optionen",
         "data": {
-          "update_interval": "Update-Intervall (Minuten)",
+          "update_time": "Abrufzeit (täglich, lokale Zeit)",
           "query_year": "Testjahr (optional)"
         }
       }

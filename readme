@@ -37,17 +37,16 @@ Für jeden ausgewählten Tariftyp werden zusätzliche Sensoren erstellt:
 - **Current price** (CHF/kWh): aktueller Arbeitspreis, inklusive der kompletten Tarif-Slots im Attribut `prices`.
 - **Next change** (Timestamp): Zeitpunkt, wann der aktuelle Preis endet.
 - **Average price today** (CHF/kWh): Durchschnittspreis heute (inkl. min/max/average Statistik).
-- **Average price tomorrow** (CHF/kWh): Durchschnittspreis morgen (inkl. Statistik, standardmässig deaktiviert).
-- **Lowest 2h/4h window today/tomorrow** (CHF/kWh): günstigste 2h/4h-Window (standardmässig deaktiviert).
-- **Highest 2h/4h window today/tomorrow** (CHF/kWh): teuerste 2h/4h-Window (standardmässig deaktiviert).
+- **Average price tomorrow** (CHF/kWh): Durchschnittspreis morgen (inkl. Statistik).
+- **Lowest 2h/4h window today/tomorrow** (CHF/kWh): günstigste 2h/4h-Window.
+- **Highest 2h/4h window today/tomorrow** (CHF/kWh): teuerste 2h/4h-Window.
 - **Cheapest 10/25/50% hours today** (Binary): Ein, wenn die aktuelle Stunde zu den günstigsten 10/25/50% gehört.
 - **Most expensive 10/25% hours today** (Binary): Ein, wenn die aktuelle Stunde zu den teuersten 10/25% gehört.
 - **In cheapest/most expensive 2h/4h window today** (Binary): Ein, wenn die aktuelle Stunde im günstigsten/teuersten Window liegt.
 
 ## Optionen
 
-In den Optionen kann das Update-Intervall (in Minuten dies sollte standatmässig auf 6 Stunden eingestellt werden ) für den periodischen Abruf angepasst werden.
-  Auf eine Zeitbasierte Abfrage wurde verzichtet. Da Unterschiedliche Energieversorger die Daten zu unterschiedlichen Zeitpunkten veröffentlichen.
+In den Optionen kann die tägliche Abrufzeit (lokale Zeit) definiert werden. Zu diesem Zeitpunkt wird die API einmal pro Tag abgefragt.
 
 ## Weiterführende Links 
 
@@ -62,5 +61,4 @@ https://smartgridready.ch/loesungen/dynamischetarife
 
 Weiterführende Intressante Website:
 https://dynamische-stromtarife.ch/
-
 

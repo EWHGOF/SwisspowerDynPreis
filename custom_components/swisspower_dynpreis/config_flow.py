@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import time
 from typing import Any
 
 import voluptuous as vol
@@ -9,6 +10,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
 from homeassistant.helpers import config_validation as cv
+from homeassistant.util import dt as dt_util
 
 from .const import (
     API_BASE,
@@ -18,10 +20,10 @@ from .const import (
     CONF_TARIFF_NAME,
     CONF_TARIFF_TYPES,
     CONF_TOKEN,
-    CONF_UPDATE_INTERVAL,
+    CONF_UPDATE_TIME,
     CONF_QUERY_YEAR,
     DEFAULT_NAME,
-    DEFAULT_UPDATE_INTERVAL,
+    DEFAULT_UPDATE_TIME,
     DOMAIN,
     METHOD_METERING_CODE,
     METHOD_TARIFF_NAME,
@@ -128,14 +130,20 @@ class SwisspowerDynPreisOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
+        default_update_time = self._config_entry.options.get(
+            CONF_UPDATE_TIME, DEFAULT_UPDATE_TIME
+        )
+        if isinstance(default_update_time, str):
+            default_update_time = dt_util.parse_time(default_update_time)
+        if not isinstance(default_update_time, time):
+            default_update_time = dt_util.parse_time(DEFAULT_UPDATE_TIME)
+
         schema = vol.Schema(
             {
                 vol.Optional(
-                    CONF_UPDATE_INTERVAL,
-                    default=self._config_entry.options.get(
-                        CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
-                    ),
-                ): vol.All(vol.Coerce(int), vol.Range(min=5, max=1440)),
+                    CONF_UPDATE_TIME,
+                    default=default_update_time,
+                ): cv.time,
                 vol.Optional(
                     CONF_QUERY_YEAR,
                     default=self._config_entry.options.get(CONF_QUERY_YEAR),
