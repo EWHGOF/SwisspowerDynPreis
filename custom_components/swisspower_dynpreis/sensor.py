@@ -105,7 +105,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
     _StatSensorDescription(
         key="avg_tomorrow",
         name="Average price tomorrow",
-        enabled_default=False,
+        enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
         value_fn=lambda slots, now, tariff, component: _average_for_day(slots, 1, tariff, component),
@@ -114,7 +114,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
     _StatSensorDescription(
         key="lowest_2h_today",
         name="Lowest 2h window today",
-        enabled_default=False,
+        enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
         value_fn=lambda slots, now, tariff, component: _window_value(slots, 0, 2, tariff, component, "min"),
@@ -123,7 +123,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
     _StatSensorDescription(
         key="lowest_2h_tomorrow",
         name="Lowest 2h window tomorrow",
-        enabled_default=False,
+        enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
         value_fn=lambda slots, now, tariff, component: _window_value(slots, 1, 2, tariff, component, "min"),
@@ -132,7 +132,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
     _StatSensorDescription(
         key="lowest_4h_today",
         name="Lowest 4h window today",
-        enabled_default=False,
+        enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
         value_fn=lambda slots, now, tariff, component: _window_value(slots, 0, 4, tariff, component, "min"),
@@ -141,7 +141,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
     _StatSensorDescription(
         key="lowest_4h_tomorrow",
         name="Lowest 4h window tomorrow",
-        enabled_default=False,
+        enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
         value_fn=lambda slots, now, tariff, component: _window_value(slots, 1, 4, tariff, component, "min"),
@@ -150,7 +150,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
     _StatSensorDescription(
         key="highest_2h_today",
         name="Highest 2h window today",
-        enabled_default=False,
+        enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
         value_fn=lambda slots, now, tariff, component: _window_value(slots, 0, 2, tariff, component, "max"),
@@ -159,7 +159,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
     _StatSensorDescription(
         key="highest_2h_tomorrow",
         name="Highest 2h window tomorrow",
-        enabled_default=False,
+        enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
         value_fn=lambda slots, now, tariff, component: _window_value(slots, 1, 2, tariff, component, "max"),
@@ -168,7 +168,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
     _StatSensorDescription(
         key="highest_4h_today",
         name="Highest 4h window today",
-        enabled_default=False,
+        enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
         value_fn=lambda slots, now, tariff, component: _window_value(slots, 0, 4, tariff, component, "max"),
@@ -177,7 +177,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
     _StatSensorDescription(
         key="highest_4h_tomorrow",
         name="Highest 4h window tomorrow",
-        enabled_default=False,
+        enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
         value_fn=lambda slots, now, tariff, component: _window_value(slots, 1, 4, tariff, component, "max"),
@@ -186,7 +186,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
     _StatSensorDescription(
         key="cheapest_25_today",
         name="Cheapest 25% hours today",
-        enabled_default=False,
+        enabled_default=True,
         unit=None,
         kind="binary",
         value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, 0.25, tariff, component, False),
@@ -194,7 +194,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
     _StatSensorDescription(
         key="cheapest_10_today",
         name="Cheapest 10% hours today",
-        enabled_default=False,
+        enabled_default=True,
         unit=None,
         kind="binary",
         value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, 0.10, tariff, component, False),
@@ -202,7 +202,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
     _StatSensorDescription(
         key="cheapest_50_today",
         name="Cheapest 50% hours today",
-        enabled_default=False,
+        enabled_default=True,
         unit=None,
         kind="binary",
         value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, 0.50, tariff, component, False),
@@ -210,7 +210,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
     _StatSensorDescription(
         key="expensive_25_today",
         name="Most expensive 25% hours today",
-        enabled_default=False,
+        enabled_default=True,
         unit=None,
         kind="binary",
         value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, 0.25, tariff, component, True),
@@ -218,7 +218,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
     _StatSensorDescription(
         key="expensive_10_today",
         name="Most expensive 10% hours today",
-        enabled_default=False,
+        enabled_default=True,
         unit=None,
         kind="binary",
         value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, 0.10, tariff, component, True),
@@ -226,7 +226,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
     _StatSensorDescription(
         key="in_cheapest_2h_today",
         name="In cheapest 2h window today",
-        enabled_default=False,
+        enabled_default=True,
         unit=None,
         kind="binary",
         value_fn=lambda slots, now, tariff, component: _in_window(slots, now, 0, 2, tariff, component, "min"),
@@ -234,7 +234,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
     _StatSensorDescription(
         key="in_cheapest_4h_today",
         name="In cheapest 4h window today",
-        enabled_default=False,
+        enabled_default=True,
         unit=None,
         kind="binary",
         value_fn=lambda slots, now, tariff, component: _in_window(slots, now, 0, 4, tariff, component, "min"),
@@ -242,7 +242,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
     _StatSensorDescription(
         key="in_expensive_2h_today",
         name="In most expensive 2h window today",
-        enabled_default=False,
+        enabled_default=True,
         unit=None,
         kind="binary",
         value_fn=lambda slots, now, tariff, component: _in_window(slots, now, 0, 2, tariff, component, "max"),
@@ -250,7 +250,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
     _StatSensorDescription(
         key="in_expensive_4h_today",
         name="In most expensive 4h window today",
-        enabled_default=False,
+        enabled_default=True,
         unit=None,
         kind="binary",
         value_fn=lambda slots, now, tariff, component: _in_window(slots, now, 0, 4, tariff, component, "max"),

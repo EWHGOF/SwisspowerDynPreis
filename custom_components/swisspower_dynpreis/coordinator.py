@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from typing import Any
 
 from aiohttp import ClientError
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
@@ -23,10 +24,10 @@ from .const import (
     CONF_TARIFF_NAME,
     CONF_TARIFF_TYPES,
     CONF_TOKEN,
-    CONF_UPDATE_INTERVAL,
+    CONF_UPDATE_TIME,
     CONF_QUERY_YEAR,
     API_BASE,
-    DEFAULT_UPDATE_INTERVAL,
+    DEFAULT_UPDATE_TIME,
     DOMAIN,
 )
 
@@ -43,8 +44,9 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tariff_name = entry_data.get(CONF_TARIFF_NAME)
         self._tariff_types = entry_data[CONF_TARIFF_TYPES]
         self._token = entry_data.get(CONF_TOKEN)
-        self._update_minutes = options.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+        self._update_time = _coerce_time(options.get(CONF_UPDATE_TIME, DEFAULT_UPDATE_TIME))
         self._query_year = options.get(CONF_QUERY_YEAR)
+        self._time_unsub = None
 
         session = async_get_clientsession(hass)
         self._client = SwisspowerDynPreisApiClient(
@@ -58,8 +60,31 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(minutes=self._update_minutes),
+            update_interval=None,
         )
+        self._schedule_time_refresh(hass)
+
+    def _schedule_time_refresh(self, hass: HomeAssistant) -> None:
+        if self._time_unsub:
+            self._time_unsub()
+            self._time_unsub = None
+        if not self._update_time:
+            return
+        self._time_unsub = async_track_time_change(
+            hass,
+            self._handle_time_refresh,
+            hour=self._update_time.hour,
+            minute=self._update_time.minute,
+            second=self._update_time.second,
+        )
+
+    async def _handle_time_refresh(self, now: datetime) -> None:
+        await self.async_request_refresh()
+
+    def async_shutdown(self) -> None:
+        if self._time_unsub:
+            self._time_unsub()
+            self._time_unsub = None
 
     async def _async_update_data(self) -> dict[str, Any]:
         now = dt_util.now()
@@ -191,4 +216,12 @@ def _coerce_datetime(value: Any) -> datetime | None:
         return datetime.fromtimestamp(timestamp, tz=dt_util.UTC)
     if isinstance(value, str):
         return dt_util.parse_datetime(value)
+    return None
+
+
+def _coerce_time(value: Any) -> time | None:
+    if isinstance(value, time):
+        return value
+    if isinstance(value, str):
+        return dt_util.parse_time(value)
     return None
