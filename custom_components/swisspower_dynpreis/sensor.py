@@ -81,6 +81,15 @@ class _StatSensorDescription:
     value_fn: Callable[[list[dict[str, Any]], datetime, str, str | None], Any]
     extra_fn: Callable[[list[dict[str, Any]], datetime, str, str | None], dict[str, Any]] | None = None
     device_class: SensorDeviceClass | None = None
+    entity_registry_visible_default: bool | None = None
+
+    def __post_init__(self) -> None:
+        if self.entity_registry_visible_default is None:
+            object.__setattr__(
+                self,
+                "entity_registry_visible_default",
+                self.enabled_default,
+            )
 
 
 STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
