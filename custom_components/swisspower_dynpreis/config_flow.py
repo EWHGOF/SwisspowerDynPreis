@@ -10,6 +10,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import selector
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -138,16 +139,19 @@ class SwisspowerDynPreisOptionsFlowHandler(config_entries.OptionsFlow):
         if not isinstance(default_update_time, time):
             default_update_time = dt_util.parse_time(DEFAULT_UPDATE_TIME)
 
+        query_year = self._config_entry.options.get(CONF_QUERY_YEAR)
+        default_year = "" if query_year in (None, "") else str(query_year)
+
         schema = vol.Schema(
             {
                 vol.Optional(
                     CONF_UPDATE_TIME,
-                    default=default_update_time,
-                ): cv.time,
+                    default=default_update_time.strftime("%H:%M:%S"),
+                ): selector.TimeSelector(),
                 vol.Optional(
                     CONF_QUERY_YEAR,
-                    default=self._config_entry.options.get(CONF_QUERY_YEAR),
-                ): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=2000, max=2100))),
+                    default=default_year,
+                ): selector.TextSelector(),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)
