@@ -90,9 +90,10 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now = dt_util.now()
         query_year = self._query_year
         if isinstance(query_year, str):
-            query_year = query_year.strip() or None
-            if query_year is not None:
-                query_year = int(query_year)
+            query_year = query_year.strip()
+            query_year = int(query_year) if query_year.isdigit() else None
+        if isinstance(query_year, float):
+            query_year = int(query_year)
         if isinstance(query_year, int):
             try:
                 now = now.replace(year=query_year)
@@ -115,10 +116,25 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except (ClientError, ValueError) as err:
                 raise UpdateFailed(f"Failed to fetch tariffs: {err}") from err
 
-            if response.get("status") != "ok":
-                raise UpdateFailed(response.get("message", "Unknown API error"))
+            # The ESIT API normally returns the price slots directly without a
+            # wrapping ``status`` field. Only treat the response as an error when
+            # an explicit, non-ok status is present.
+            status = response.get("status")
+            if isinstance(status, str) and status.lower() not in ("ok", "success"):
+                raise UpdateFailed(
+                    response.get("message")
+                    or response.get("error")
+                    or f"API error: {status}"
+                )
 
-            data[tariff_type] = _normalize_tariff_response(response, window_end=end)
+            normalized = _normalize_tariff_response(response, window_end=end)
+            if not normalized.get("prices"):
+                _LOGGER.warning(
+                    "No price slots returned for tariff_type=%s (response keys: %s)",
+                    tariff_type,
+                    list(response.keys()),
+                )
+            data[tariff_type] = normalized
 
         return data
 
