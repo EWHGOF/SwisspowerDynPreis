@@ -45,13 +45,36 @@ def extract_slot_value(
     return None
 
 
+def parse_timestamp(value: Any) -> datetime | None:
+    """Parse a slot timestamp, tolerating a slot that carries none.
+
+    dt_util.parse_datetime raises TypeError for anything that is not a string,
+    so a slot the API sent without a usable timestamp would otherwise take down
+    every render that walks the price list.
+    """
+    if not isinstance(value, str):
+        return None
+    return dt_util.parse_datetime(value)
+
+
+def slot_bounds(slot: dict[str, Any]) -> tuple[datetime, datetime] | None:
+    """Return the start/end of a slot, or None if either is unusable."""
+    start = parse_timestamp(slot.get("start_timestamp"))
+    end = parse_timestamp(slot.get("end_timestamp"))
+    if start is None or end is None:
+        return None
+    return start, end
+
+
 def find_current_slot(slots: list[dict[str, Any]], now: datetime) -> dict[str, Any] | None:
     """Find the current slot for a given time."""
     for slot in slots:
-        start = dt_util.parse_datetime(slot.get("start_timestamp"))
-        end = dt_util.parse_datetime(slot.get("end_timestamp"))
-        if not start or not end:
+        if not isinstance(slot, dict):
             continue
+        bounds = slot_bounds(slot)
+        if bounds is None:
+            continue
+        start, end = bounds
         if start <= now <= end:
             return slot
     return None
@@ -67,10 +90,10 @@ def normalize_price_slots(
     for slot in slots:
         if not isinstance(slot, dict):
             continue
-        start = dt_util.parse_datetime(slot.get("start_timestamp"))
-        end = dt_util.parse_datetime(slot.get("end_timestamp"))
-        if not start or not end:
+        bounds = slot_bounds(slot)
+        if bounds is None:
             continue
+        start, end = bounds
         value = extract_slot_value(slot, tariff_type, component)
         if value is None:
             continue

@@ -23,6 +23,7 @@ from .pricing import (
     extract_slot_value,
     find_current_slot,
     normalize_price_slots,
+    parse_timestamp,
     percentile_threshold,
     window_extreme,
 )
@@ -518,7 +519,7 @@ def _next_change(
     slot = find_current_slot(slots, now)
     if not slot:
         return None
-    return dt_util.parse_datetime(slot.get("end_timestamp"))
+    return parse_timestamp(slot.get("end_timestamp"))
 
 
 def _average_for_day(
