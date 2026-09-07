@@ -23,6 +23,7 @@ from .pricing import (
     extract_slot_value,
     find_current_slot,
     normalize_price_slots,
+    parse_timestamp,
     percentile_threshold,
     window_extreme,
 )
@@ -388,7 +389,12 @@ class SwisspowerDynPreisStatSensor(
         self._entry_id = entry_id
         self._name = name
         self._tariff_type = tariff_type
-        self.entity_description = description
+        # Deliberately NOT called ``entity_description``: Home Assistant reads
+        # its own fields (has_entity_name, suggested_unit_of_measurement, ...)
+        # off that attribute whenever it exists, and _StatSensorDescription is
+        # not a SensorEntityDescription. Naming it that way made every stat
+        # entity fail to be added with an AttributeError.
+        self._description = description
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -400,29 +406,29 @@ class SwisspowerDynPreisStatSensor(
 
     @property
     def name(self) -> str:
-        return f"{self._name} {self._tariff_type} {self.entity_description.name}"
+        return f"{self._name} {self._tariff_type} {self._description.name}"
 
     @property
     def unique_id(self) -> str:
-        return f"{self._entry_id}_{self._tariff_type}_{self.entity_description.key}"
+        return f"{self._entry_id}_{self._tariff_type}_{self._description.key}"
 
     @property
     def native_unit_of_measurement(self) -> str | None:
-        return self.entity_description.unit
+        return self._description.unit
 
     @property
     def device_class(self) -> SensorDeviceClass | None:
-        return self.entity_description.device_class
+        return self._description.device_class
 
     @property
     def entity_registry_enabled_default(self) -> bool:
-        return self.entity_description.enabled_default
+        return self._description.enabled_default
 
     @property
     def native_value(self) -> Any:
         data = self.coordinator.data.get(self._tariff_type, {})
         now = dt_util.now()
-        return self.entity_description.value_fn(
+        return self._description.value_fn(
             data.get("prices", []),
             now,
             self._tariff_type,
@@ -431,11 +437,11 @@ class SwisspowerDynPreisStatSensor(
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        if not self.entity_description.extra_fn:
+        if not self._description.extra_fn:
             return {}
         data = self.coordinator.data.get(self._tariff_type, {})
         now = dt_util.now()
-        return self.entity_description.extra_fn(
+        return self._description.extra_fn(
             data.get("prices", []),
             now,
             self._tariff_type,
@@ -463,7 +469,12 @@ class SwisspowerDynPreisBinaryStatSensor(
         self._entry_id = entry_id
         self._name = name
         self._tariff_type = tariff_type
-        self.entity_description = description
+        # Deliberately NOT called ``entity_description``: Home Assistant reads
+        # its own fields (has_entity_name, suggested_unit_of_measurement, ...)
+        # off that attribute whenever it exists, and _StatSensorDescription is
+        # not a SensorEntityDescription. Naming it that way made every stat
+        # entity fail to be added with an AttributeError.
+        self._description = description
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -475,22 +486,22 @@ class SwisspowerDynPreisBinaryStatSensor(
 
     @property
     def name(self) -> str:
-        return f"{self._name} {self._tariff_type} {self.entity_description.name}"
+        return f"{self._name} {self._tariff_type} {self._description.name}"
 
     @property
     def unique_id(self) -> str:
-        return f"{self._entry_id}_{self._tariff_type}_{self.entity_description.key}"
+        return f"{self._entry_id}_{self._tariff_type}_{self._description.key}"
 
     @property
     def entity_registry_enabled_default(self) -> bool:
-        return self.entity_description.enabled_default
+        return self._description.enabled_default
 
     @property
     def is_on(self) -> bool | None:
         data = self.coordinator.data.get(self._tariff_type, {})
         now = dt_util.now()
         return bool(
-            self.entity_description.value_fn(
+            self._description.value_fn(
                 data.get("prices", []),
                 now,
                 self._tariff_type,
@@ -508,7 +519,7 @@ def _next_change(
     slot = find_current_slot(slots, now)
     if not slot:
         return None
-    return dt_util.parse_datetime(slot.get("end_timestamp"))
+    return parse_timestamp(slot.get("end_timestamp"))
 
 
 def _average_for_day(
