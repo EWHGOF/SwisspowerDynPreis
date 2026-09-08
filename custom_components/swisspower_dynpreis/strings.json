@@ -35,8 +35,10 @@
         "title": "Swisspower DynPreis Optionen",
         "data": {
           "update_time": "Abrufzeit (täglich, lokale Zeit)",
+          "update_time_pm": "Abrufzeit nachmittags (lokale Zeit)",
           "query_year": "Testjahr (optional)"
-        }
+        },
+        "description": "Die API wird an der Morgen- und an der Nachmittagszeit abgefragt. Die Preise für morgen werden von den meisten Energieversorgern erst nachmittags publiziert; fehlen sie noch, wird nach der Nachmittagszeit in grösseren Abständen erneut nachgefragt."
       }
     }
   }

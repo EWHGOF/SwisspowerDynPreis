@@ -87,6 +87,39 @@ def hourly(day: date, base: float = 0.10, step: float = 0.01) -> list[dict[str, 
     return day_slots(day, [round(base + hour * step, 4) for hour in range(24)])
 
 
+def slots_from(
+    start: datetime,
+    values: list[float],
+    *,
+    tariff_type: str = "electricity",
+    component: str = "energy",
+    slot_minutes: int = 60,
+) -> list[dict[str, Any]]:
+    """Build slots from an absolute instant, stepping in real elapsed time.
+
+    Unlike day_slots this walks UTC, so it stays correct across a DST change -
+    which is what a real API returns, rather than a wall-clock time that does
+    not exist.
+    """
+    step = timedelta(minutes=slot_minutes)
+    cursor = dt_util.as_utc(start)
+    slots: list[dict[str, Any]] = []
+    for value in values:
+        slots.append(
+            {
+                "start_timestamp": dt_util.as_local(cursor).isoformat(),
+                "end_timestamp": dt_util.as_local(
+                    cursor + step - timedelta(seconds=1)
+                ).isoformat(),
+                tariff_type: [
+                    {"component": component, "unit": "CHF/kWh", "value": value}
+                ],
+            }
+        )
+        cursor += step
+    return slots
+
+
 class FakeApi:
     """Controllable stand-in for the ESIT API."""
 
@@ -133,11 +166,14 @@ def make_entry(
     update_time: str | None = "06:00",
     *,
     tariff_types: list[str] | None = None,
+    options: dict[str, Any] | None = None,
 ) -> MockConfigEntry:
     """Build a tariff-name config entry."""
-    options: dict[str, Any] = {}
+    extra = options or {}
+    options = {}
     if update_time is not None:
         options[CONF_UPDATE_TIME] = update_time
+    options.update(extra)
     return MockConfigEntry(
         domain=DOMAIN,
         title="Test",
