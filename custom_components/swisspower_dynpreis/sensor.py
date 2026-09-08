@@ -109,8 +109,8 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
         enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _average_for_day(slots, 0, tariff, component),
-        extra_fn=lambda slots, now, tariff, component: _day_stats(slots, 0, tariff, component),
+        value_fn=lambda slots, now, tariff, component: _average_for_day(slots, now, 0, tariff, component),
+        extra_fn=lambda slots, now, tariff, component: _day_stats(slots, now, 0, tariff, component),
     ),
     _StatSensorDescription(
         key="avg_tomorrow",
@@ -118,8 +118,8 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
         enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _average_for_day(slots, 1, tariff, component),
-        extra_fn=lambda slots, now, tariff, component: _day_stats(slots, 1, tariff, component),
+        value_fn=lambda slots, now, tariff, component: _average_for_day(slots, now, 1, tariff, component),
+        extra_fn=lambda slots, now, tariff, component: _day_stats(slots, now, 1, tariff, component),
     ),
     _StatSensorDescription(
         key="lowest_2h_today",
@@ -127,8 +127,8 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
         enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _window_value(slots, 0, 2, tariff, component, "min"),
-        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, 0, 2, tariff, component, "min"),
+        value_fn=lambda slots, now, tariff, component: _window_value(slots, now, 0, 2, tariff, component, "min"),
+        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, now, 0, 2, tariff, component, "min"),
     ),
     _StatSensorDescription(
         key="lowest_2h_tomorrow",
@@ -136,8 +136,8 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
         enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _window_value(slots, 1, 2, tariff, component, "min"),
-        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, 1, 2, tariff, component, "min"),
+        value_fn=lambda slots, now, tariff, component: _window_value(slots, now, 1, 2, tariff, component, "min"),
+        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, now, 1, 2, tariff, component, "min"),
     ),
     _StatSensorDescription(
         key="lowest_4h_today",
@@ -145,8 +145,8 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
         enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _window_value(slots, 0, 4, tariff, component, "min"),
-        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, 0, 4, tariff, component, "min"),
+        value_fn=lambda slots, now, tariff, component: _window_value(slots, now, 0, 4, tariff, component, "min"),
+        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, now, 0, 4, tariff, component, "min"),
     ),
     _StatSensorDescription(
         key="lowest_4h_tomorrow",
@@ -154,8 +154,8 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
         enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _window_value(slots, 1, 4, tariff, component, "min"),
-        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, 1, 4, tariff, component, "min"),
+        value_fn=lambda slots, now, tariff, component: _window_value(slots, now, 1, 4, tariff, component, "min"),
+        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, now, 1, 4, tariff, component, "min"),
     ),
     _StatSensorDescription(
         key="highest_2h_today",
@@ -163,8 +163,8 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
         enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _window_value(slots, 0, 2, tariff, component, "max"),
-        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, 0, 2, tariff, component, "max"),
+        value_fn=lambda slots, now, tariff, component: _window_value(slots, now, 0, 2, tariff, component, "max"),
+        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, now, 0, 2, tariff, component, "max"),
     ),
     _StatSensorDescription(
         key="highest_2h_tomorrow",
@@ -172,8 +172,8 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
         enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _window_value(slots, 1, 2, tariff, component, "max"),
-        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, 1, 2, tariff, component, "max"),
+        value_fn=lambda slots, now, tariff, component: _window_value(slots, now, 1, 2, tariff, component, "max"),
+        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, now, 1, 2, tariff, component, "max"),
     ),
     _StatSensorDescription(
         key="highest_4h_today",
@@ -181,8 +181,8 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
         enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _window_value(slots, 0, 4, tariff, component, "max"),
-        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, 0, 4, tariff, component, "max"),
+        value_fn=lambda slots, now, tariff, component: _window_value(slots, now, 0, 4, tariff, component, "max"),
+        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, now, 0, 4, tariff, component, "max"),
     ),
     _StatSensorDescription(
         key="highest_4h_tomorrow",
@@ -190,8 +190,8 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
         enabled_default=True,
         unit="CHF/kWh",
         kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _window_value(slots, 1, 4, tariff, component, "max"),
-        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, 1, 4, tariff, component, "max"),
+        value_fn=lambda slots, now, tariff, component: _window_value(slots, now, 1, 4, tariff, component, "max"),
+        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, now, 1, 4, tariff, component, "max"),
     ),
     _StatSensorDescription(
         key="cheapest_25_today",
@@ -199,7 +199,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
         enabled_default=True,
         unit=None,
         kind="binary",
-        value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, 0.25, tariff, component, False),
+        value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, now, 0.25, tariff, component, False),
     ),
     _StatSensorDescription(
         key="cheapest_10_today",
@@ -207,7 +207,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
         enabled_default=True,
         unit=None,
         kind="binary",
-        value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, 0.10, tariff, component, False),
+        value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, now, 0.10, tariff, component, False),
     ),
     _StatSensorDescription(
         key="cheapest_50_today",
@@ -215,7 +215,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
         enabled_default=True,
         unit=None,
         kind="binary",
-        value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, 0.50, tariff, component, False),
+        value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, now, 0.50, tariff, component, False),
     ),
     _StatSensorDescription(
         key="expensive_25_today",
@@ -223,7 +223,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
         enabled_default=True,
         unit=None,
         kind="binary",
-        value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, 0.25, tariff, component, True),
+        value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, now, 0.25, tariff, component, True),
     ),
     _StatSensorDescription(
         key="expensive_10_today",
@@ -231,7 +231,7 @@ STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
         enabled_default=True,
         unit=None,
         kind="binary",
-        value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, 0.10, tariff, component, True),
+        value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, now, 0.10, tariff, component, True),
     ),
     _StatSensorDescription(
         key="in_cheapest_2h_today",
@@ -500,14 +500,19 @@ class SwisspowerDynPreisBinaryStatSensor(
     def is_on(self) -> bool | None:
         data = self.coordinator.data.get(self._tariff_type, {})
         now = dt_util.now()
-        return bool(
-            self._description.value_fn(
-                data.get("prices", []),
-                now,
-                self._tariff_type,
-                None,
-            )
+        value = self._description.value_fn(
+            data.get("prices", []),
+            now,
+            self._tariff_type,
+            None,
         )
+        # None means "no data for this instant" and must stay unknown. Wrapping
+        # it in bool() reported every gap - the end of the covered range, a
+        # missing next day - as a confident "off", which is a dangerous input
+        # for automations now that state is re-rendered at every boundary.
+        if value is None:
+            return None
+        return bool(value)
 
 
 def _next_change(
@@ -524,23 +529,25 @@ def _next_change(
 
 def _average_for_day(
     slots: list[dict[str, Any]],
+    now: datetime,
     offset_days: int,
     tariff_type: str,
     component: str | None,
 ) -> float | None:
     normalized = normalize_price_slots(slots, tariff_type, component)
-    start, end_exclusive = day_bounds(offset_days)
+    start, end_exclusive = day_bounds(now, offset_days)
     return average_price_for_window(normalized, start, end_exclusive)
 
 
 def _day_stats(
     slots: list[dict[str, Any]],
+    now: datetime,
     offset_days: int,
     tariff_type: str,
     component: str | None,
 ) -> dict[str, Any]:
     normalized = normalize_price_slots(slots, tariff_type, component)
-    start, end_exclusive = day_bounds(offset_days)
+    start, end_exclusive = day_bounds(now, offset_days)
     values = [slot.value for slot in normalized if start <= slot.start < end_exclusive]
     if not values:
         return {}
@@ -554,6 +561,7 @@ def _day_stats(
 
 def _window_value(
     slots: list[dict[str, Any]],
+    now: datetime,
     offset_days: int,
     window_hours: int,
     tariff_type: str,
@@ -561,7 +569,7 @@ def _window_value(
     extreme: str,
 ) -> float | None:
     normalized = normalize_price_slots(slots, tariff_type, component)
-    start, end_exclusive = day_bounds(offset_days)
+    start, end_exclusive = day_bounds(now, offset_days)
     result = window_extreme(normalized, start, end_exclusive, window_hours, extreme=extreme)
     if not result:
         return None
@@ -570,6 +578,7 @@ def _window_value(
 
 def _window_attrs(
     slots: list[dict[str, Any]],
+    now: datetime,
     offset_days: int,
     window_hours: int,
     tariff_type: str,
@@ -577,7 +586,7 @@ def _window_attrs(
     extreme: str,
 ) -> dict[str, Any]:
     normalized = normalize_price_slots(slots, tariff_type, component)
-    start, end_exclusive = day_bounds(offset_days)
+    start, end_exclusive = day_bounds(now, offset_days)
     result = window_extreme(normalized, start, end_exclusive, window_hours, extreme=extreme)
     if not result:
         return {}
@@ -591,17 +600,17 @@ def _window_attrs(
 
 def _percentile_binary(
     slots: list[dict[str, Any]],
+    now: datetime,
     percentile: float,
     tariff_type: str,
     component: str | None,
     highest: bool,
 ) -> bool | None:
     normalized = normalize_price_slots(slots, tariff_type, component)
-    start, end_exclusive = day_bounds(0)
+    start, end_exclusive = day_bounds(now, 0)
     day_slots = [slot for slot in normalized if start <= slot.start < end_exclusive]
     if not day_slots:
         return None
-    now = dt_util.now()
     current = next((slot for slot in day_slots if slot.start <= now <= slot.end), None)
     if not current:
         return None
@@ -623,7 +632,7 @@ def _in_window(
     extreme: str,
 ) -> bool | None:
     normalized = normalize_price_slots(slots, tariff_type, component)
-    start, end_exclusive = day_bounds(offset_days)
+    start, end_exclusive = day_bounds(now, offset_days)
     result = window_extreme(normalized, start, end_exclusive, window_hours, extreme=extreme)
     if not result:
         return None

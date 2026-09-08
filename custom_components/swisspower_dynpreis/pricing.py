@@ -101,10 +101,18 @@ def normalize_price_slots(
     return sorted(normalized, key=lambda item: item.start)
 
 
-def day_bounds(offset_days: int) -> tuple[datetime, datetime]:
-    """Return start and end-exclusive datetimes for the local day offset."""
-    start = dt_util.start_of_local_day(dt_util.now()) + timedelta(days=offset_days)
-    end_exclusive = start + timedelta(days=1)
+def day_bounds(now: datetime, offset_days: int) -> tuple[datetime, datetime]:
+    """Return start and end-exclusive datetimes for the local day offset.
+
+    ``now`` is passed in rather than read from the clock so that one render
+    cannot mix two different instants - which is exactly what happens at the
+    slot and midnight boundaries the render timer deliberately fires on.
+    """
+    local_now = dt_util.as_local(now)
+    start = dt_util.start_of_local_day(local_now + timedelta(days=offset_days))
+    end_exclusive = dt_util.start_of_local_day(
+        local_now + timedelta(days=offset_days + 1)
+    )
     return start, end_exclusive
 
 

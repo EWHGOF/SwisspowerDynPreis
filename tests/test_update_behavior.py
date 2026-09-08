@@ -145,19 +145,22 @@ async def test_failed_refresh_is_retried_the_same_day(
     today = date(2026, 9, 7)
     api.publish(today, day_slots(today, [0.20] * 24))
 
-    freezer.move_to(at(2026, 9, 7, 6))
+    # Set up just before the morning anchor. async_track_time_change searches
+    # from utcnow + 1s, so an anchor the clock already sits on would not fire
+    # at all today.
+    freezer.move_to(at(2026, 9, 7, 5, 55))
     await setup_integration(hass, make_entry(update_time="06:00"))
     assert float(hass.states.get(AVG_TODAY).state) == pytest.approx(0.20)
 
-    # The API breaks and the next scheduled refresh fails.
+    # The API breaks, then the 06:00 anchor fires and fails.
     api.error = ClientError("boom")
-    await advance(hass, freezer, timedelta(hours=2), step=timedelta(minutes=15))
+    await advance(hass, freezer, timedelta(minutes=20), step=timedelta(minutes=5))
     calls_after_failure = api.call_count
-    assert calls_after_failure > 1, "a refresh must have been attempted and failed"
+    assert calls_after_failure > 1, "the anchor must have fired and failed"
 
-    # The API recovers. A retry must happen well within the same day.
+    # The API recovers. The backoff must retry within the hour, not tomorrow.
     api.error = None
-    await advance(hass, freezer, timedelta(hours=2), step=timedelta(minutes=5))
+    await advance(hass, freezer, timedelta(minutes=40), step=timedelta(minutes=5))
 
     assert (
         api.call_count > calls_after_failure

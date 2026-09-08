@@ -46,7 +46,43 @@ Für jeden ausgewählten Tariftyp werden zusätzliche Sensoren erstellt:
 
 ## Optionen
 
-In den Optionen kann die tägliche Abrufzeit (lokale Zeit) definiert werden. Zu diesem Zeitpunkt wird die API einmal pro Tag abgefragt.
+In den Optionen werden zwei tägliche Abrufzeiten (lokale Zeit) definiert:
+
+- **Abrufzeit** (Standard 06:00): der Morgen-Abruf.
+- **Abrufzeit nachmittags** (Standard 14:00): der Nachmittags-Abruf.
+
+Zwei Zeitpunkte sind nötig, weil die meisten Energieversorger die Preise für
+den Folgetag erst am Nachmittag publizieren. Ein reiner Morgen-Abruf kann sie
+also nie sehen, und alle «morgen»-Sensoren bleiben leer.
+
+Zusätzlich gilt:
+
+- Sind die Preise für morgen nach dem Nachmittags-Abruf noch nicht vollständig
+  publiziert, wird in grösseren Abständen (30, 30, 60, 60, 120, 120 Minuten)
+  erneut nachgefragt und ab 23:00 bis zum nächsten Morgen-Abruf nicht mehr.
+- Fehlt der Preis für den aktuellen Zeitpunkt ganz (die API antwortet zwar,
+  aber ohne Daten), wird unabhängig von der Tageszeit schneller nachgefragt
+  (5, 10, 15, 30, 30, 60, 60, 120 Minuten).
+- Schlägt ein Abruf fehl, wird mit 1, 2, 5, 10 und 30 Minuten Abstand erneut
+  versucht, maximal sechsmal. Danach wird die nächste Abrufzeit abgewartet;
+  jede Abrufzeit beginnt wieder mit einer frischen Wiederholungsreihe.
+- Ein normaler Tag ergibt damit zwei API-Abfragen pro Tariftyp.
+- **Testjahr** (optional) schreibt das Abfragejahr um und ist nur zum Testen
+  gedacht. In diesem Modus wird nicht nach den Preisen für morgen nachgefragt,
+  es gelten nur die beiden Abrufzeiten.
+
+Die Sensorwerte werden unabhängig von den Abrufen laufend aktualisiert: bei
+jedem Preiswechsel und um lokal 00:00 Uhr wird aus den bereits geladenen Daten
+neu gerechnet, ohne zusätzliche API-Abfrage. Die Länge der Preisintervalle wird
+dabei aus den Daten gelesen, 15-Minuten-Tarife funktionieren also ebenso wie
+Stundentarife.
+
+Änderungen an den Optionen werden sofort übernommen; ein Neustart von Home
+Assistant ist nicht nötig.
+
+Hinweis: Wird für die Integration in Home Assistant «Abfrage aktiviert»
+ausgeschaltet, entfallen die Wiederholungen (Nachfragen und Fehler-Retry), die
+beiden festen Abrufzeiten bleiben aber aktiv.
 
 ## Weiterführende Links 
 

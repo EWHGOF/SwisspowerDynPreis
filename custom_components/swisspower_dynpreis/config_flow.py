@@ -22,9 +22,11 @@ from .const import (
     CONF_TARIFF_TYPES,
     CONF_TOKEN,
     CONF_UPDATE_TIME,
+    CONF_UPDATE_TIME_PM,
     CONF_QUERY_YEAR,
     DEFAULT_NAME,
     DEFAULT_UPDATE_TIME,
+    DEFAULT_UPDATE_TIME_PM,
     DOMAIN,
     METHOD_METERING_CODE,
     METHOD_TARIFF_NAME,
@@ -131,22 +133,25 @@ class SwisspowerDynPreisOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        default_update_time = self._config_entry.options.get(
-            CONF_UPDATE_TIME, DEFAULT_UPDATE_TIME
+        default_update_time = self._option_time(CONF_UPDATE_TIME, DEFAULT_UPDATE_TIME)
+        default_update_time_pm = self._option_time(
+            CONF_UPDATE_TIME_PM, DEFAULT_UPDATE_TIME_PM
         )
-        if isinstance(default_update_time, str):
-            default_update_time = dt_util.parse_time(default_update_time)
-        if not isinstance(default_update_time, time):
-            default_update_time = dt_util.parse_time(DEFAULT_UPDATE_TIME)
 
         query_year = self._config_entry.options.get(CONF_QUERY_YEAR)
         default_year = "" if query_year in (None, "") else str(query_year)
 
+        # Every key the coordinator reads has to be in this schema: saving the
+        # options replaces the whole dict, so a missing key gets dropped.
         schema = vol.Schema(
             {
                 vol.Optional(
                     CONF_UPDATE_TIME,
                     default=default_update_time.strftime("%H:%M:%S"),
+                ): selector.TimeSelector(),
+                vol.Optional(
+                    CONF_UPDATE_TIME_PM,
+                    default=default_update_time_pm.strftime("%H:%M:%S"),
                 ): selector.TimeSelector(),
                 vol.Optional(
                     CONF_QUERY_YEAR,
@@ -155,3 +160,12 @@ class SwisspowerDynPreisOptionsFlowHandler(config_entries.OptionsFlow):
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)
+
+    def _option_time(self, key: str, fallback: str) -> time:
+        """Read a stored time option, falling back to its default."""
+        value = self._config_entry.options.get(key, fallback)
+        if isinstance(value, str):
+            value = dt_util.parse_time(value)
+        if not isinstance(value, time):
+            value = dt_util.parse_time(fallback)
+        return value
