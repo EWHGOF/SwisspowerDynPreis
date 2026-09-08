@@ -139,7 +139,7 @@ async def test_binary_sensor_is_unknown_without_data(
     freezer.move_to(at(2026, 9, 7, 13, 0))
     await setup_integration(hass, make_entry(update_time="06:00"))
 
-    state = hass.states.get("sensor.test_electricity_cheapest_25_hours_today")
+    state = hass.states.get("binary_sensor.test_electricity_cheapest_25_hours_today")
     assert state is not None
     assert state.state == "unknown", (
         "outside the covered range the percentile sensors must not report off"

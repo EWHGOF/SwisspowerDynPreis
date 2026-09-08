@@ -2,30 +2,117 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
-from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from .const import CONF_TARIFF_TYPES, DEFAULT_NAME, DOMAIN
 from .coordinator import SwisspowerDynPreisCoordinator
-from .pricing import (
-    average_price_for_window,
-    day_bounds,
-    extract_slot_value,
-    find_current_slot,
-    normalize_price_slots,
-    parse_timestamp,
-    percentile_threshold,
-    window_extreme,
+from .entity import SwisspowerDynPreisEntity
+from .pricing import extract_slot_value, find_current_slot
+from .stats import (
+    average_for_day,
+    day_stats,
+    next_change,
+    window_attrs,
+    window_value,
+)
+
+
+@dataclass(frozen=True)
+class SensorDescription:
+    """One derived numeric or timestamp sensor."""
+
+    key: str
+    name: str
+    enabled_default: bool
+    unit: str | None
+    value_fn: Callable[[list[dict[str, Any]], datetime, str, str | None], Any]
+    extra_fn: (
+        Callable[[list[dict[str, Any]], datetime, str, str | None], dict[str, Any]]
+        | None
+    ) = None
+    device_class: SensorDeviceClass | None = None
+
+
+_DERIVED_DESCRIPTIONS: tuple[SensorDescription, ...] = (
+    SensorDescription(
+        key="next_change",
+        name="Next change",
+        enabled_default=True,
+        unit=None,
+        value_fn=lambda slots, now, tariff, component: next_change(
+            slots, now, tariff, component
+        ),
+        device_class=SensorDeviceClass.TIMESTAMP,
+    ),
+    SensorDescription(
+        key="avg_today",
+        name="Average price today",
+        enabled_default=True,
+        unit="CHF/kWh",
+        value_fn=lambda slots, now, tariff, component: average_for_day(
+            slots, now, 0, tariff, component
+        ),
+        extra_fn=lambda slots, now, tariff, component: day_stats(
+            slots, now, 0, tariff, component
+        ),
+    ),
+    SensorDescription(
+        key="avg_tomorrow",
+        name="Average price tomorrow",
+        enabled_default=True,
+        unit="CHF/kWh",
+        value_fn=lambda slots, now, tariff, component: average_for_day(
+            slots, now, 1, tariff, component
+        ),
+        extra_fn=lambda slots, now, tariff, component: day_stats(
+            slots, now, 1, tariff, component
+        ),
+    ),
+)
+
+# key, name, day offset, window length in hours, cheapest ("min") or dearest.
+# Spelled out rather than generated so every entity key is greppable.
+_WINDOW_SENSORS: tuple[tuple[str, str, int, int, str], ...] = (
+    ("lowest_2h_today", "Lowest 2h window today", 0, 2, "min"),
+    ("lowest_2h_tomorrow", "Lowest 2h window tomorrow", 1, 2, "min"),
+    ("lowest_4h_today", "Lowest 4h window today", 0, 4, "min"),
+    ("lowest_4h_tomorrow", "Lowest 4h window tomorrow", 1, 4, "min"),
+    ("highest_2h_today", "Highest 2h window today", 0, 2, "max"),
+    ("highest_2h_tomorrow", "Highest 2h window tomorrow", 1, 2, "max"),
+    ("highest_4h_today", "Highest 4h window today", 0, 4, "max"),
+    ("highest_4h_tomorrow", "Highest 4h window tomorrow", 1, 4, "max"),
+)
+
+
+def _window_description(
+    key: str, name: str, offset_days: int, hours: int, extreme: str
+) -> SensorDescription:
+    """Build one of the lowest/highest window sensors."""
+    return SensorDescription(
+        key=key,
+        name=name,
+        enabled_default=True,
+        unit="CHF/kWh",
+        value_fn=lambda slots, now, tariff, component: window_value(
+            slots, now, offset_days, hours, tariff, component, extreme
+        ),
+        extra_fn=lambda slots, now, tariff, component: window_attrs(
+            slots, now, offset_days, hours, tariff, component, extreme
+        ),
+    )
+
+
+SENSOR_DESCRIPTIONS: tuple[SensorDescription, ...] = _DERIVED_DESCRIPTIONS + tuple(
+    _window_description(*row) for row in _WINDOW_SENSORS
 )
 
 
@@ -39,7 +126,7 @@ async def async_setup_entry(
     name = entry.title or DEFAULT_NAME
 
     tariff_types = entry.data[CONF_TARIFF_TYPES]
-    entities: list[CoordinatorEntity] = []
+    entities: list[SwisspowerDynPreisEntity] = []
     component_map = _collect_components(coordinator.data, tariff_types)
     for tariff_type in tariff_types:
         entities.append(
@@ -61,245 +148,21 @@ async def async_setup_entry(
                 )
             )
         entities.extend(
-            _build_stat_entities(
+            SwisspowerDynPreisStatSensor(
                 coordinator=coordinator,
                 entry_id=entry.entry_id,
                 name=name,
                 tariff_type=tariff_type,
+                description=description,
             )
+            for description in SENSOR_DESCRIPTIONS
         )
 
     async_add_entities(entities)
 
 
-@dataclass(frozen=True)
-class _StatSensorDescription:
-    key: str
-    name: str
-    enabled_default: bool
-    unit: str | None
-    kind: str
-    value_fn: Callable[[list[dict[str, Any]], datetime, str, str | None], Any]
-    extra_fn: Callable[[list[dict[str, Any]], datetime, str, str | None], dict[str, Any]] | None = None
-    device_class: SensorDeviceClass | None = None
-    entity_registry_visible_default: bool | None = None
-
-    def __post_init__(self) -> None:
-        if self.entity_registry_visible_default is None:
-            object.__setattr__(
-                self,
-                "entity_registry_visible_default",
-                self.enabled_default,
-            )
-
-
-STAT_SENSORS: tuple[_StatSensorDescription, ...] = (
-    _StatSensorDescription(
-        key="next_change",
-        name="Next change",
-        enabled_default=True,
-        unit=None,
-        kind="timestamp",
-        value_fn=lambda slots, now, tariff, component: _next_change(slots, now, tariff, component),
-        device_class=SensorDeviceClass.TIMESTAMP,
-    ),
-    _StatSensorDescription(
-        key="avg_today",
-        name="Average price today",
-        enabled_default=True,
-        unit="CHF/kWh",
-        kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _average_for_day(slots, now, 0, tariff, component),
-        extra_fn=lambda slots, now, tariff, component: _day_stats(slots, now, 0, tariff, component),
-    ),
-    _StatSensorDescription(
-        key="avg_tomorrow",
-        name="Average price tomorrow",
-        enabled_default=True,
-        unit="CHF/kWh",
-        kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _average_for_day(slots, now, 1, tariff, component),
-        extra_fn=lambda slots, now, tariff, component: _day_stats(slots, now, 1, tariff, component),
-    ),
-    _StatSensorDescription(
-        key="lowest_2h_today",
-        name="Lowest 2h window today",
-        enabled_default=True,
-        unit="CHF/kWh",
-        kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _window_value(slots, now, 0, 2, tariff, component, "min"),
-        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, now, 0, 2, tariff, component, "min"),
-    ),
-    _StatSensorDescription(
-        key="lowest_2h_tomorrow",
-        name="Lowest 2h window tomorrow",
-        enabled_default=True,
-        unit="CHF/kWh",
-        kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _window_value(slots, now, 1, 2, tariff, component, "min"),
-        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, now, 1, 2, tariff, component, "min"),
-    ),
-    _StatSensorDescription(
-        key="lowest_4h_today",
-        name="Lowest 4h window today",
-        enabled_default=True,
-        unit="CHF/kWh",
-        kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _window_value(slots, now, 0, 4, tariff, component, "min"),
-        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, now, 0, 4, tariff, component, "min"),
-    ),
-    _StatSensorDescription(
-        key="lowest_4h_tomorrow",
-        name="Lowest 4h window tomorrow",
-        enabled_default=True,
-        unit="CHF/kWh",
-        kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _window_value(slots, now, 1, 4, tariff, component, "min"),
-        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, now, 1, 4, tariff, component, "min"),
-    ),
-    _StatSensorDescription(
-        key="highest_2h_today",
-        name="Highest 2h window today",
-        enabled_default=True,
-        unit="CHF/kWh",
-        kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _window_value(slots, now, 0, 2, tariff, component, "max"),
-        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, now, 0, 2, tariff, component, "max"),
-    ),
-    _StatSensorDescription(
-        key="highest_2h_tomorrow",
-        name="Highest 2h window tomorrow",
-        enabled_default=True,
-        unit="CHF/kWh",
-        kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _window_value(slots, now, 1, 2, tariff, component, "max"),
-        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, now, 1, 2, tariff, component, "max"),
-    ),
-    _StatSensorDescription(
-        key="highest_4h_today",
-        name="Highest 4h window today",
-        enabled_default=True,
-        unit="CHF/kWh",
-        kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _window_value(slots, now, 0, 4, tariff, component, "max"),
-        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, now, 0, 4, tariff, component, "max"),
-    ),
-    _StatSensorDescription(
-        key="highest_4h_tomorrow",
-        name="Highest 4h window tomorrow",
-        enabled_default=True,
-        unit="CHF/kWh",
-        kind="sensor",
-        value_fn=lambda slots, now, tariff, component: _window_value(slots, now, 1, 4, tariff, component, "max"),
-        extra_fn=lambda slots, now, tariff, component: _window_attrs(slots, now, 1, 4, tariff, component, "max"),
-    ),
-    _StatSensorDescription(
-        key="cheapest_25_today",
-        name="Cheapest 25% hours today",
-        enabled_default=True,
-        unit=None,
-        kind="binary",
-        value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, now, 0.25, tariff, component, False),
-    ),
-    _StatSensorDescription(
-        key="cheapest_10_today",
-        name="Cheapest 10% hours today",
-        enabled_default=True,
-        unit=None,
-        kind="binary",
-        value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, now, 0.10, tariff, component, False),
-    ),
-    _StatSensorDescription(
-        key="cheapest_50_today",
-        name="Cheapest 50% hours today",
-        enabled_default=True,
-        unit=None,
-        kind="binary",
-        value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, now, 0.50, tariff, component, False),
-    ),
-    _StatSensorDescription(
-        key="expensive_25_today",
-        name="Most expensive 25% hours today",
-        enabled_default=True,
-        unit=None,
-        kind="binary",
-        value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, now, 0.25, tariff, component, True),
-    ),
-    _StatSensorDescription(
-        key="expensive_10_today",
-        name="Most expensive 10% hours today",
-        enabled_default=True,
-        unit=None,
-        kind="binary",
-        value_fn=lambda slots, now, tariff, component: _percentile_binary(slots, now, 0.10, tariff, component, True),
-    ),
-    _StatSensorDescription(
-        key="in_cheapest_2h_today",
-        name="In cheapest 2h window today",
-        enabled_default=True,
-        unit=None,
-        kind="binary",
-        value_fn=lambda slots, now, tariff, component: _in_window(slots, now, 0, 2, tariff, component, "min"),
-    ),
-    _StatSensorDescription(
-        key="in_cheapest_4h_today",
-        name="In cheapest 4h window today",
-        enabled_default=True,
-        unit=None,
-        kind="binary",
-        value_fn=lambda slots, now, tariff, component: _in_window(slots, now, 0, 4, tariff, component, "min"),
-    ),
-    _StatSensorDescription(
-        key="in_expensive_2h_today",
-        name="In most expensive 2h window today",
-        enabled_default=True,
-        unit=None,
-        kind="binary",
-        value_fn=lambda slots, now, tariff, component: _in_window(slots, now, 0, 2, tariff, component, "max"),
-    ),
-    _StatSensorDescription(
-        key="in_expensive_4h_today",
-        name="In most expensive 4h window today",
-        enabled_default=True,
-        unit=None,
-        kind="binary",
-        value_fn=lambda slots, now, tariff, component: _in_window(slots, now, 0, 4, tariff, component, "max"),
-    ),
-)
-
-
-def _build_stat_entities(
-    *,
-    coordinator: SwisspowerDynPreisCoordinator,
-    entry_id: str,
-    name: str,
-    tariff_type: str,
-) -> list[CoordinatorEntity]:
-    entities: list[CoordinatorEntity] = []
-    for description in STAT_SENSORS:
-        entity_cls: type[CoordinatorEntity]
-        if description.kind == "binary":
-            entity_cls = SwisspowerDynPreisBinaryStatSensor
-        else:
-            entity_cls = SwisspowerDynPreisStatSensor
-        entities.append(
-            entity_cls(
-                coordinator=coordinator,
-                entry_id=entry_id,
-                name=name,
-                tariff_type=tariff_type,
-                description=description,
-            )
-        )
-    return entities
-
-
-class SwisspowerDynPreisCurrentPriceSensor(
-    CoordinatorEntity[SwisspowerDynPreisCoordinator], SensorEntity
-):
-    """Representation of a Swisspower DynPreis tariff."""
-
-    _attr_should_poll = False
+class SwisspowerDynPreisCurrentPriceSensor(SwisspowerDynPreisEntity, SensorEntity):
+    """The price that applies right now."""
 
     def __init__(
         self,
@@ -310,19 +173,13 @@ class SwisspowerDynPreisCurrentPriceSensor(
         tariff_type: str,
         component: str | None = None,
     ) -> None:
-        super().__init__(coordinator)
-        self._entry_id = entry_id
-        self._name = name
-        self._tariff_type = tariff_type
-        self._component = component
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry_id)},
-            name=self._name,
-            manufacturer="Swisspower",
+        super().__init__(
+            coordinator=coordinator,
+            entry_id=entry_id,
+            name=name,
+            tariff_type=tariff_type,
         )
+        self._component = component
 
     @property
     def name(self) -> str:
@@ -333,7 +190,9 @@ class SwisspowerDynPreisCurrentPriceSensor(
     @property
     def unique_id(self) -> str:
         if self._component:
-            return f"{self._entry_id}_{self._tariff_type}_{self._component}_current_price"
+            return (
+                f"{self._entry_id}_{self._tariff_type}_{self._component}_current_price"
+            )
         return f"{self._entry_id}_{self._tariff_type}_current_price"
 
     @property
@@ -342,16 +201,15 @@ class SwisspowerDynPreisCurrentPriceSensor(
 
     @property
     def native_value(self) -> float | None:
-        data = self.coordinator.data.get(self._tariff_type, {})
-        slot = find_current_slot(data.get("prices", []), dt_util.now())
+        slot = find_current_slot(self.price_slots, dt_util.now())
         if not slot:
             return None
         return extract_slot_value(slot, self._tariff_type, self._component)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        data = self.coordinator.data.get(self._tariff_type, {})
-        slot = find_current_slot(data.get("prices", []), dt_util.now())
+        slots = self.price_slots
+        slot = find_current_slot(slots, dt_util.now())
         current_start = None
         current_end = None
         current_value = None
@@ -362,19 +220,15 @@ class SwisspowerDynPreisCurrentPriceSensor(
         return {
             "tariff_type": self._tariff_type,
             "component": self._component,
-            "prices": data.get("prices", []),
+            "prices": slots,
             "current_start_timestamp": current_start,
             "current_end_timestamp": current_end,
             "current_value": current_value,
         }
 
 
-class SwisspowerDynPreisStatSensor(
-    CoordinatorEntity[SwisspowerDynPreisCoordinator], SensorEntity
-):
-    """Statistics sensor for Swisspower DynPreis."""
-
-    _attr_should_poll = False
+class SwisspowerDynPreisStatSensor(SwisspowerDynPreisEntity, SensorEntity):
+    """A statistic derived from the cached price curve."""
 
     def __init__(
         self,
@@ -383,26 +237,20 @@ class SwisspowerDynPreisStatSensor(
         entry_id: str,
         name: str,
         tariff_type: str,
-        description: _StatSensorDescription,
+        description: SensorDescription,
     ) -> None:
-        super().__init__(coordinator)
-        self._entry_id = entry_id
-        self._name = name
-        self._tariff_type = tariff_type
+        super().__init__(
+            coordinator=coordinator,
+            entry_id=entry_id,
+            name=name,
+            tariff_type=tariff_type,
+        )
         # Deliberately NOT called ``entity_description``: Home Assistant reads
         # its own fields (has_entity_name, suggested_unit_of_measurement, ...)
-        # off that attribute whenever it exists, and _StatSensorDescription is
-        # not a SensorEntityDescription. Naming it that way made every stat
-        # entity fail to be added with an AttributeError.
+        # off that attribute whenever it exists, and SensorDescription is not a
+        # SensorEntityDescription. Naming it that way made every stat entity
+        # fail to be added with an AttributeError.
         self._description = description
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry_id)},
-            name=self._name,
-            manufacturer="Swisspower",
-        )
 
     @property
     def name(self) -> str:
@@ -426,228 +274,34 @@ class SwisspowerDynPreisStatSensor(
 
     @property
     def native_value(self) -> Any:
-        data = self.coordinator.data.get(self._tariff_type, {})
-        now = dt_util.now()
         return self._description.value_fn(
-            data.get("prices", []),
-            now,
-            self._tariff_type,
-            None,
+            self.price_slots, dt_util.now(), self._tariff_type, None
         )
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         if not self._description.extra_fn:
             return {}
-        data = self.coordinator.data.get(self._tariff_type, {})
-        now = dt_util.now()
         return self._description.extra_fn(
-            data.get("prices", []),
-            now,
-            self._tariff_type,
-            None,
+            self.price_slots, dt_util.now(), self._tariff_type, None
         )
-
-
-class SwisspowerDynPreisBinaryStatSensor(
-    CoordinatorEntity[SwisspowerDynPreisCoordinator], BinarySensorEntity
-):
-    """Binary statistics sensor for Swisspower DynPreis."""
-
-    _attr_should_poll = False
-
-    def __init__(
-        self,
-        *,
-        coordinator: SwisspowerDynPreisCoordinator,
-        entry_id: str,
-        name: str,
-        tariff_type: str,
-        description: _StatSensorDescription,
-    ) -> None:
-        super().__init__(coordinator)
-        self._entry_id = entry_id
-        self._name = name
-        self._tariff_type = tariff_type
-        # Deliberately NOT called ``entity_description``: Home Assistant reads
-        # its own fields (has_entity_name, suggested_unit_of_measurement, ...)
-        # off that attribute whenever it exists, and _StatSensorDescription is
-        # not a SensorEntityDescription. Naming it that way made every stat
-        # entity fail to be added with an AttributeError.
-        self._description = description
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry_id)},
-            name=self._name,
-            manufacturer="Swisspower",
-        )
-
-    @property
-    def name(self) -> str:
-        return f"{self._name} {self._tariff_type} {self._description.name}"
-
-    @property
-    def unique_id(self) -> str:
-        return f"{self._entry_id}_{self._tariff_type}_{self._description.key}"
-
-    @property
-    def entity_registry_enabled_default(self) -> bool:
-        return self._description.enabled_default
-
-    @property
-    def is_on(self) -> bool | None:
-        data = self.coordinator.data.get(self._tariff_type, {})
-        now = dt_util.now()
-        value = self._description.value_fn(
-            data.get("prices", []),
-            now,
-            self._tariff_type,
-            None,
-        )
-        # None means "no data for this instant" and must stay unknown. Wrapping
-        # it in bool() reported every gap - the end of the covered range, a
-        # missing next day - as a confident "off", which is a dangerous input
-        # for automations now that state is re-rendered at every boundary.
-        if value is None:
-            return None
-        return bool(value)
-
-
-def _next_change(
-    slots: list[dict[str, Any]],
-    now: datetime,
-    tariff_type: str,
-    component: str | None,
-) -> datetime | None:
-    slot = find_current_slot(slots, now)
-    if not slot:
-        return None
-    return parse_timestamp(slot.get("end_timestamp"))
-
-
-def _average_for_day(
-    slots: list[dict[str, Any]],
-    now: datetime,
-    offset_days: int,
-    tariff_type: str,
-    component: str | None,
-) -> float | None:
-    normalized = normalize_price_slots(slots, tariff_type, component)
-    start, end_exclusive = day_bounds(now, offset_days)
-    return average_price_for_window(normalized, start, end_exclusive)
-
-
-def _day_stats(
-    slots: list[dict[str, Any]],
-    now: datetime,
-    offset_days: int,
-    tariff_type: str,
-    component: str | None,
-) -> dict[str, Any]:
-    normalized = normalize_price_slots(slots, tariff_type, component)
-    start, end_exclusive = day_bounds(now, offset_days)
-    values = [slot.value for slot in normalized if start <= slot.start < end_exclusive]
-    if not values:
-        return {}
-    return {
-        "min_price": min(values),
-        "max_price": max(values),
-        "average_price": sum(values) / len(values),
-        "slots": len(values),
-    }
-
-
-def _window_value(
-    slots: list[dict[str, Any]],
-    now: datetime,
-    offset_days: int,
-    window_hours: int,
-    tariff_type: str,
-    component: str | None,
-    extreme: str,
-) -> float | None:
-    normalized = normalize_price_slots(slots, tariff_type, component)
-    start, end_exclusive = day_bounds(now, offset_days)
-    result = window_extreme(normalized, start, end_exclusive, window_hours, extreme=extreme)
-    if not result:
-        return None
-    return result[0]
-
-
-def _window_attrs(
-    slots: list[dict[str, Any]],
-    now: datetime,
-    offset_days: int,
-    window_hours: int,
-    tariff_type: str,
-    component: str | None,
-    extreme: str,
-) -> dict[str, Any]:
-    normalized = normalize_price_slots(slots, tariff_type, component)
-    start, end_exclusive = day_bounds(now, offset_days)
-    result = window_extreme(normalized, start, end_exclusive, window_hours, extreme=extreme)
-    if not result:
-        return {}
-    avg, window_start, window_end = result
-    return {
-        "window_start": window_start.isoformat(),
-        "window_end": window_end.isoformat(),
-        "window_average": avg,
-    }
-
-
-def _percentile_binary(
-    slots: list[dict[str, Any]],
-    now: datetime,
-    percentile: float,
-    tariff_type: str,
-    component: str | None,
-    highest: bool,
-) -> bool | None:
-    normalized = normalize_price_slots(slots, tariff_type, component)
-    start, end_exclusive = day_bounds(now, 0)
-    day_slots = [slot for slot in normalized if start <= slot.start < end_exclusive]
-    if not day_slots:
-        return None
-    current = next((slot for slot in day_slots if slot.start <= now <= slot.end), None)
-    if not current:
-        return None
-    threshold = percentile_threshold([slot.value for slot in day_slots], percentile, highest=highest)
-    if threshold is None:
-        return None
-    if highest:
-        return current.value >= threshold
-    return current.value <= threshold
-
-
-def _in_window(
-    slots: list[dict[str, Any]],
-    now: datetime,
-    offset_days: int,
-    window_hours: int,
-    tariff_type: str,
-    component: str | None,
-    extreme: str,
-) -> bool | None:
-    normalized = normalize_price_slots(slots, tariff_type, component)
-    start, end_exclusive = day_bounds(now, offset_days)
-    result = window_extreme(normalized, start, end_exclusive, window_hours, extreme=extreme)
-    if not result:
-        return None
-    _, window_start, window_end = result
-    return window_start <= now <= window_end
 
 
 def _collect_components(
-    data: dict[str, Any],
+    data: dict[str, Any] | None,
     tariff_types: list[str],
 ) -> dict[str, set[str]]:
-    components: dict[str, set[str]] = {tariff_type: set() for tariff_type in tariff_types}
+    """Find the price components the API returned per tariff type."""
+    components: dict[str, set[str]] = {
+        tariff_type: set() for tariff_type in tariff_types
+    }
+    if not isinstance(data, dict):
+        return components
     for tariff_type in tariff_types:
-        tariff_data = data.get(tariff_type, {})
-        slots = tariff_data.get("prices", [])
+        tariff_data = data.get(tariff_type)
+        if not isinstance(tariff_data, dict):
+            continue
+        slots = tariff_data.get("prices")
         if not isinstance(slots, list):
             continue
         for slot in slots:
