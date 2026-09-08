@@ -60,8 +60,12 @@ Zusätzlich gilt:
 - Sind die Preise für morgen nach dem Nachmittags-Abruf noch nicht vollständig
   publiziert, wird in grösseren Abständen (30, 30, 60, 60, 120, 120 Minuten)
   erneut nachgefragt und ab 23:00 bis zum nächsten Morgen-Abruf nicht mehr.
+- Fehlt der Preis für den aktuellen Zeitpunkt ganz (die API antwortet zwar,
+  aber ohne Daten), wird unabhängig von der Tageszeit schneller nachgefragt
+  (5, 10, 15, 30, 30, 60, 60, 120 Minuten).
 - Schlägt ein Abruf fehl, wird mit 1, 2, 5, 10 und 30 Minuten Abstand erneut
-  versucht, maximal sechsmal. Danach wird die nächste Abrufzeit abgewartet.
+  versucht, maximal sechsmal. Danach wird die nächste Abrufzeit abgewartet;
+  jede Abrufzeit beginnt wieder mit einer frischen Wiederholungsreihe.
 - Ein normaler Tag ergibt damit zwei API-Abfragen pro Tariftyp.
 - **Testjahr** (optional) schreibt das Abfragejahr um und ist nur zum Testen
   gedacht. In diesem Modus wird nicht nach den Preisen für morgen nachgefragt,

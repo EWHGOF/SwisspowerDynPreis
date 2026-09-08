@@ -50,10 +50,11 @@ from .const import (
     DOMAIN,
     HUNT_MINUTES,
     HUNT_STOP_HOUR,
+    TODAY_HUNT_MINUTES,
     TOMORROW_COVERAGE_RATIO,
     WINDOW_DAYS_FORWARD,
 )
-from .pricing import slot_bounds
+from .pricing import find_current_slot, slot_bounds
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -82,6 +83,7 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fail_count = 0
         self._hunt_count = 0
         self._hunt_day: date | None = None
+        self._hunt_kind: str | None = None
         self._render_unsub = None
         self._tearing_down = False
 
@@ -220,6 +222,12 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _handle_anchor(self, now: datetime) -> None:
         """Fetch at one of the configured daily times."""
+        # Every anchor starts a fresh ladder. Without this the failure counter
+        # would only ever reset on a success, so once the backoff had given up
+        # it stayed given up: from the next day on there was one attempt per
+        # day and no retries at all.
+        self._fail_count = 0
+        self._hunt_count = 0
         # async_refresh rather than async_request_refresh: the latter goes
         # through a debouncer, which would swallow an anchor that lands close
         # to a retry.
@@ -235,6 +243,27 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except ValueError:
             # 29 February in a target year that has no such day.
             return now.replace(year=self._query_year, day=28)
+
+    def covers_now(self, data: dict[str, Any] | None) -> bool:
+        """Return True when every tariff type has a slot for the current instant.
+
+        This is the condition behind "current price is unknown". It is checked
+        instead of full coverage of today, so an API that only publishes from
+        the current hour onwards does not look permanently incomplete.
+        """
+        if not data:
+            return False
+        reference = self.reference_now()
+        for tariff_type in self._tariff_types:
+            tariff_data = data.get(tariff_type)
+            if not isinstance(tariff_data, dict):
+                return False
+            prices = tariff_data.get("prices")
+            if not isinstance(prices, list):
+                return False
+            if find_current_slot(prices, reference) is None:
+                return False
+        return True
 
     def tomorrow_complete(self, data: dict[str, Any] | None) -> bool:
         """Return True when every tariff type covers tomorrow's local day.
@@ -283,30 +312,51 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return timedelta(minutes=BACKOFF_MINUTES[index])
 
     def _hunt_interval(self, data: dict[str, Any]) -> timedelta | None:
-        """Return the wait before looking for tomorrow's prices again."""
+        """Return the wait before asking for missing prices again.
+
+        Two deficits, in order of severity. No slot for the current instant
+        means the integration has no price to show at all, so that is chased on
+        its own faster ladder with no time-of-day gate. A missing next day is
+        only chased after the afternoon anchor, because day-ahead prices
+        genuinely do not exist earlier. Both ladders are finite, so neither
+        deficit can turn into an unbounded request stream.
+        """
         local_now = dt_util.as_local(dt_util.now())
         if self._hunt_day != local_now.date():
             self._hunt_day = local_now.date()
             self._hunt_count = 0
+            self._hunt_kind = None
 
         if self._query_year is not None:
             # Debug mode: "tomorrow" lives in the rewritten year and is
             # essentially never complete, so the anchors alone must do.
             return None
-        if self.tomorrow_complete(data):
+
+        if not self.covers_now(data):
+            kind, ladder, gated = "today", TODAY_HUNT_MINUTES, False
+        elif not self.tomorrow_complete(data):
+            kind, ladder, gated = "tomorrow", HUNT_MINUTES, True
+        else:
             self._hunt_count = 0
-            return None
-        if self._update_time_pm is None:
-            return None
-        if local_now.time() < self._update_time_pm:
-            # Tomorrow's prices genuinely do not exist yet in the morning.
-            return None
-        if local_now.hour >= HUNT_STOP_HOUR:
-            return None
-        if self._hunt_count >= len(HUNT_MINUTES):
+            self._hunt_kind = None
             return None
 
-        interval = timedelta(minutes=HUNT_MINUTES[self._hunt_count])
+        if gated:
+            if self._update_time_pm is None:
+                return None
+            if local_now.time() < self._update_time_pm:
+                return None
+            if local_now.hour >= HUNT_STOP_HOUR:
+                return None
+
+        if self._hunt_kind != kind:
+            # Switching deficit starts that ladder from the top.
+            self._hunt_kind = kind
+            self._hunt_count = 0
+        if self._hunt_count >= len(ladder):
+            return None
+
+        interval = timedelta(minutes=ladder[self._hunt_count])
         self._hunt_count += 1
         return interval
 

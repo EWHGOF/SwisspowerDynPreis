@@ -42,6 +42,13 @@ BACKOFF_MAX_TRIES = 6
 HUNT_MINUTES = (30, 30, 60, 60, 120, 120)
 HUNT_STOP_HOUR = 23
 
+# When no slot covers the current instant, today's own prices are missing. That
+# is worse than a missing next day and is not tied to a publication time, so it
+# gets its own faster schedule (minutes) with no time-of-day gate. An API that
+# answers with an empty list is a success, not a failure, so the failure backoff
+# would never see this case.
+TODAY_HUNT_MINUTES = (5, 10, 15, 30, 30, 60, 60, 120)
+
 # Share of tomorrow's local day that must be covered by price slots before
 # tomorrow counts as published. Measured in seconds of coverage rather than
 # slot count, so it works for any slot length and for 23/24/25-hour days.

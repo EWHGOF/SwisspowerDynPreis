@@ -18,10 +18,12 @@ from custom_components.swisspower_dynpreis.const import (
     DOMAIN,
     HUNT_MINUTES,
     HUNT_STOP_HOUR,
+    TODAY_HUNT_MINUTES,
 )
 
 from .helpers import (
     AVG_TOMORROW,
+    CURRENT_PRICE,
     FakeApi,
     advance,
     at,
@@ -316,3 +318,86 @@ async def test_timeout_is_retried_like_any_other_failure(
     api.error = None
     await advance(hass, freezer, timedelta(minutes=40), step=timedelta(minutes=5))
     assert api.call_count > calls_after_timeout, "the timeout must be retried"
+
+
+async def test_backoff_ladder_restarts_at_the_next_anchor(
+    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
+) -> None:
+    """A day of failures must not disable retries for good.
+
+    The failure counter used to reset only on success, so once the chain gave
+    up after BACKOFF_MAX_TRIES the backoff returned None for ever: from the
+    next day on there was exactly one attempt per day and no retries at all.
+    Every anchor has to start a fresh ladder.
+    """
+    await set_time_zone(hass)
+    today = date(2026, 9, 7)
+    api.publish(today, day_slots(today, [0.20] * 24))
+
+    freezer.move_to(at(2026, 9, 7, 5, 55))
+    entry = make_entry(update_time="06:00")
+    await setup_integration(hass, entry)
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+
+    # A whole day of failures exhausts the ladder.
+    api.error = ClientError("dead")
+    await advance(hass, freezer, timedelta(hours=18), step=timedelta(minutes=10))
+    assert coordinator.update_interval is None, "the chain must have given up"
+
+    # Next day, still dead: the morning anchor must retry more than once.
+    calls_day_one = api.call_count
+    await advance(hass, freezer, timedelta(hours=12), step=timedelta(minutes=10))
+
+    attempts_day_two = api.call_count - calls_day_one
+    assert attempts_day_two > 2, (
+        f"the ladder must restart at the next anchor, got {attempts_day_two} "
+        "attempts on day two"
+    )
+
+
+async def test_missing_today_is_chased_without_waiting_for_the_afternoon(
+    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
+) -> None:
+    """An empty but successful response must not park the integration.
+
+    The API answering 200 with no slots is not a failure, so the failure
+    backoff never sees it. Without its own ladder the integration would sit
+    with every entity unknown until the afternoon anchor hours later.
+    """
+    await set_time_zone(hass)
+    today = date(2026, 9, 7)
+
+    # Nothing published yet: setup succeeds but there is no price to show.
+    freezer.move_to(at(2026, 9, 7, 7, 0))
+    entry = make_entry(update_time="06:00")
+    await setup_integration(hass, entry)
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+
+    assert hass.states.get(CURRENT_PRICE).state == "unknown"
+    assert coordinator.update_interval is not None, (
+        "a missing current price must schedule another attempt"
+    )
+
+    # Today's prices appear a little later and must be picked up quickly.
+    api.publish(today, day_slots(today, [0.20] * 24))
+    await advance(hass, freezer, timedelta(minutes=30), step=timedelta(minutes=5))
+
+    assert float(hass.states.get(CURRENT_PRICE).state) == pytest.approx(0.20)
+    assert coordinator.update_interval is None or coordinator._hunt_kind == "tomorrow"
+
+
+async def test_missing_today_ladder_is_bounded(
+    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
+) -> None:
+    """If nothing is ever published, the today ladder still has to end."""
+    await set_time_zone(hass)
+
+    freezer.move_to(at(2026, 9, 7, 7, 0))
+    await setup_integration(hass, make_entry(update_time="06:00"))
+    calls_after_setup = api.call_count
+
+    await advance(hass, freezer, timedelta(hours=12), step=timedelta(minutes=5))
+
+    attempts = api.call_count - calls_after_setup
+    # The today ladder, plus the afternoon anchor which restarts it once.
+    assert attempts <= 2 * len(TODAY_HUNT_MINUTES) + 1, attempts
