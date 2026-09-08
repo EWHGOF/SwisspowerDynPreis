@@ -1,0 +1,50 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# The two Home Assistant versions are pinned on purpose: one is the oldest
+# release the integration claims to support (hacs.json), the other a current
+# one, so a deprecation surfaces here rather than in an issue report. Bump the
+# second pair when a newer release appears.
+#
+# Not included yet: home-assistant/actions/hassfest and hacs/action. Both are
+# worth adding, but manifest.json still points at the wrong repository and
+# names a codeowner that does not apply, so they would fail for reasons this
+# workflow cannot fix.
+jobs:
+  pytest:
+    name: pytest (HA ${{ matrix.homeassistant }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - homeassistant: "2024.3.3"
+            phacc: "0.13.109"
+            python: "3.11"
+          - homeassistant: "2026.2.3"
+            phacc: "0.13.316"
+            python: "3.13"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install "pytest-homeassistant-custom-component==${{ matrix.phacc }}" tzdata
+
+      - name: Verify the pinned Home Assistant version
+        run: |
+          python -c "from homeassistant.const import __version__ as v; expected='${{ matrix.homeassistant }}'; assert v == expected, f'got {v}, expected {expected}'; print('Home Assistant', v)"
+
+      - name: Run tests
+        run: python -m pytest tests/ -q

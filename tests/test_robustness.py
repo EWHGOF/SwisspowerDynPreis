@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
 from custom_components.swisspower_dynpreis.const import DOMAIN
 
 from .helpers import (
+    AVG_TODAY,
     CURRENT_PRICE,
     FakeApi,
     advance,
@@ -219,4 +221,58 @@ async def test_coverage_accepts_a_full_spring_forward_day(
 
     assert coordinator.tomorrow_complete(coordinator.data), (
         "a complete 23-hour day must not be judged against 24 hours"
+    )
+
+
+async def test_works_in_a_non_zurich_timezone(
+    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
+) -> None:
+    """Nothing may assume the Home Assistant timezone matches the API's offset.
+
+    Home Assistant in UTC against an API sending +02:00 timestamps is the
+    Docker default, and none of the reviewed designs had a test for it. The
+    day boundaries follow Home Assistant's timezone, so the slot stamped
+    02:00+02:00 is midnight UTC and starts the UTC day.
+    """
+    await set_time_zone(hass, "UTC")
+
+    offset = timezone(timedelta(hours=2))
+    # 48 hourly slots stamped in +02:00, starting at 02:00+02:00 = 00:00 UTC.
+    start = datetime(2026, 9, 7, 2, 0, tzinfo=offset)
+    slots = []
+    for index in range(48):
+        slot_start = start + timedelta(hours=index)
+        slots.append(
+            {
+                "start_timestamp": slot_start.isoformat(),
+                "end_timestamp": (
+                    slot_start + timedelta(hours=1, seconds=-1)
+                ).isoformat(),
+                "electricity": [
+                    {
+                        "component": "energy",
+                        "unit": "CHF/kWh",
+                        "value": round(index * 0.01, 4),
+                    }
+                ],
+            }
+        )
+    api.publish(date(2026, 9, 7), slots)
+
+    freezer.move_to(datetime(2026, 9, 7, 6, 30, tzinfo=dt_util.UTC))
+    await setup_integration(hass, make_entry(update_time="03:00"))
+
+    # 06:30 UTC is the seventh slot of the UTC day.
+    assert hass.states.get(CURRENT_PRICE).state == "0.06"
+    calls_after_setup = api.call_count
+
+    await advance(hass, freezer, timedelta(hours=1))
+
+    assert hass.states.get(CURRENT_PRICE).state == "0.07"
+    assert api.call_count == calls_after_setup, "no fetch is needed to re-render"
+
+    # "Today" is the UTC day, so the first 24 slots - not the ones that fall in
+    # the +02:00 calendar day the timestamps are written in.
+    assert float(hass.states.get(AVG_TODAY).state) == pytest.approx(
+        sum(index * 0.01 for index in range(24)) / 24
     )

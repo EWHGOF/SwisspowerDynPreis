@@ -13,6 +13,7 @@ Two clocks drive this integration and they are deliberately separate:
 
 from __future__ import annotations
 
+import inspect
 import logging
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -50,6 +51,7 @@ from .const import (
     DOMAIN,
     HUNT_MINUTES,
     HUNT_STOP_HOUR,
+    MAX_RETRY_AFTER_SECONDS,
     TODAY_HUNT_MINUTES,
     TOMORROW_COVERAGE_RATIO,
     WINDOW_DAYS_FORWARD,
@@ -99,16 +101,23 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # _async_update_data sets a real interval only while retrying a failure
         # or still waiting for tomorrow's prices.
         #
-        # config_entry is deliberately not passed to super(): that keyword does
-        # not exist on homeassistant 2024.3, and on current versions the base
-        # class fills self.config_entry from the current_entry ContextVar and
-        # explicitly does not enforce passing it for custom integrations.
-        super().__init__(
-            hass,
-            _LOGGER,
-            name=DOMAIN,
-            update_interval=None,
-        )
+        # always_update=False: the base class notifies every listener after each
+        # refresh whether or not the payload changed. A hunt cycle that returns
+        # the same curve would otherwise re-render every entity for nothing -
+        # time-driven updates are the render clock's job, not the fetch's.
+        kwargs: dict[str, Any] = {
+            "name": DOMAIN,
+            "update_interval": None,
+            "always_update": False,
+        }
+        # The config_entry keyword was added after 2024.3, where the base class
+        # instead reads the current_entry ContextVar. Passing it where it exists
+        # removes that dependency - self.config_entry is what carries the base
+        # teardown registration and pref_disable_polling - and silences the
+        # deprecation current versions report.
+        if "config_entry" in inspect.signature(DataUpdateCoordinator.__init__).parameters:
+            kwargs["config_entry"] = entry
+        super().__init__(hass, _LOGGER, **kwargs)
 
         # Registered after super().__init__, which puts the base class's own
         # async_shutdown on the entry first. Unload callbacks drain LIFO, so
@@ -150,7 +159,7 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ``data`` lets a refresh arm the timer from the payload it just fetched,
         before the base class has assigned self.data.
         """
-        if self._tearing_down:
+        if self._tearing_down or self.hass.is_stopping:
             return
         if self._render_unsub is not None:
             self._render_unsub()
@@ -166,6 +175,11 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _handle_render(self, now: datetime) -> None:
         """Re-render entity state from the cached price curve."""
         self._render_unsub = None
+        if self.hass.is_stopping:
+            # The base class guards the fetch against shutdown but not the
+            # listener notification, and cancel_on_shutdown does not reach a
+            # point-in-time job, so the chain has to stop itself.
+            return
         # Re-arm before rendering: async_track_point_in_time fires once, so a
         # failure while writing state must not break the chain for good.
         self._async_schedule_render()
@@ -366,7 +380,30 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._hunt_count += 1
         return interval
 
-    def _note_failure(self) -> None:
+    def _failure_interval(self, err: Exception) -> timedelta | None:
+        """Return the wait after a failed fetch, reading the HTTP status.
+
+        api.py calls raise_for_status, so a rejected token or an unknown tariff
+        name arrives as a ClientResponseError just like a network blip would.
+        Laddering those is pointless: they do not get better by asking again.
+        """
+        status = getattr(err, "status", None)
+        if isinstance(status, int):
+            if status == 429:
+                retry_after = _parse_retry_after(getattr(err, "headers", None))
+                if retry_after is not None:
+                    return retry_after
+            elif 400 <= status < 500 and status != 408:
+                _LOGGER.warning(
+                    "The API rejected the request with HTTP %s. Check the "
+                    "metering code, token or tariff name; retries are "
+                    "suspended until the next scheduled fetch",
+                    status,
+                )
+                return None
+        return self._backoff_interval()
+
+    def _note_failure(self, err: Exception) -> None:
         """Record a failed fetch and schedule the retry.
 
         The interval is set before the UpdateFailed propagates, because
@@ -375,7 +412,7 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         method, so clearing the interval cannot leave one behind.
         """
         self._fail_count += 1
-        self.update_interval = self._backoff_interval()
+        self.update_interval = self._failure_interval(err)
 
     async def _async_update_data(self) -> dict[str, Any]:
         local_ref = dt_util.as_local(self.reference_now())
@@ -395,10 +432,10 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # TimeoutError matters: api.py wraps every request in a timeout, and
             # DataUpdateCoordinator handles a bare TimeoutError itself. That
             # would skip _note_failure and leave no retry scheduled at all.
-            self._note_failure()
+            self._note_failure(err)
             raise UpdateFailed(f"Failed to fetch tariffs: {err}") from err
-        except UpdateFailed:
-            self._note_failure()
+        except UpdateFailed as err:
+            self._note_failure(err)
             raise
 
         self._fail_count = 0
@@ -552,6 +589,30 @@ def _coerce_time(value: Any) -> time | None:
     if isinstance(value, str):
         return dt_util.parse_time(value)
     return None
+
+
+def _parse_retry_after(headers: Any) -> timedelta | None:
+    """Read a Retry-After header given as a number of seconds.
+
+    The HTTP-date form is ignored on purpose: it is rare here and the escalating
+    ladder is a safe fallback. The value is clamped so a hostile or broken
+    header cannot park the integration for days.
+    """
+    if headers is None:
+        return None
+    try:
+        raw = headers.get("Retry-After")
+    except AttributeError:
+        return None
+    if raw is None:
+        return None
+    try:
+        seconds = int(str(raw).strip())
+    except ValueError:
+        return None
+    if seconds <= 0:
+        return None
+    return timedelta(seconds=min(seconds, MAX_RETRY_AFTER_SECONDS))
 
 
 def _coerce_year(value: Any) -> int | None:

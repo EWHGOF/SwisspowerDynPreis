@@ -9,7 +9,6 @@ CONF_METERING_CODE = "metering_code"
 CONF_TARIFF_NAME = "tariff_name"
 CONF_TARIFF_TYPES = "tariff_types"
 CONF_TOKEN = "token"
-CONF_UPDATE_INTERVAL = "update_interval"
 CONF_UPDATE_TIME = "update_time"
 CONF_UPDATE_TIME_PM = "update_time_pm"
 CONF_QUERY_YEAR = "query_year"
@@ -20,7 +19,6 @@ METHOD_TARIFF_NAME = "tariff_name"
 TARIFF_TYPES = ["electricity", "grid", "dso", "integrated", "feed_in"]
 
 API_BASE = "https://esit.code-fabrik.ch/api/v1"
-DEFAULT_UPDATE_INTERVAL = 60
 DEFAULT_UPDATE_TIME = "06:00"
 DEFAULT_UPDATE_TIME_PM = "14:00"
 TIMEOUT_SECONDS = 20
@@ -35,6 +33,10 @@ WINDOW_DAYS_FORWARD = 2
 # so a permanently broken API cannot turn into an unbounded request stream.
 BACKOFF_MINUTES = (1, 2, 5, 10, 30)
 BACKOFF_MAX_TRIES = 6
+
+# Upper bound for a Retry-After header, so a broken or hostile value cannot
+# park the integration for days.
+MAX_RETRY_AFTER_SECONDS = 6 * 60 * 60
 
 # While tomorrow's prices are still missing, retry on this escalating schedule
 # (minutes) after the afternoon anchor has passed, and stop for the day at

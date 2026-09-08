@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
-from aiohttp import ClientError
+from aiohttp import ClientError, ClientResponseError
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
@@ -18,6 +18,7 @@ from custom_components.swisspower_dynpreis.const import (
     DOMAIN,
     HUNT_MINUTES,
     HUNT_STOP_HOUR,
+    MAX_RETRY_AFTER_SECONDS,
     TODAY_HUNT_MINUTES,
 )
 
@@ -401,3 +402,104 @@ async def test_missing_today_ladder_is_bounded(
     attempts = api.call_count - calls_after_setup
     # The today ladder, plus the afternoon anchor which restarts it once.
     assert attempts <= 2 * len(TODAY_HUNT_MINUTES) + 1, attempts
+
+
+def _response_error(status: int, headers: dict[str, str] | None = None) -> ClientResponseError:
+    """Build the error aiohttp's raise_for_status would raise."""
+    return ClientResponseError(
+        request_info=None,
+        history=(),
+        status=status,
+        message=f"HTTP {status}",
+        headers=headers,
+    )
+
+
+async def test_rejected_credentials_are_not_retried_in_a_ladder(
+    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
+) -> None:
+    """A permanent 4xx must wait for the next anchor, not ladder.
+
+    api.py calls raise_for_status, so a wrong token or tariff name arrives as a
+    ClientResponseError exactly like a network blip. Laddering it means politely
+    hammering the API with a credential that will never work.
+    """
+    await set_time_zone(hass)
+    today = date(2026, 9, 7)
+    api.publish(today, day_slots(today, [0.20] * 24))
+
+    freezer.move_to(at(2026, 9, 7, 5, 55))
+    entry = make_entry(update_time="06:00")
+    await setup_integration(hass, entry)
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+
+    api.error = _response_error(403)
+    await advance(hass, freezer, timedelta(minutes=20), step=timedelta(minutes=5))
+
+    assert coordinator.last_update_success is False
+    assert coordinator.update_interval is None, "a rejected request must not ladder"
+
+    calls_after_rejection = api.call_count
+    await advance(hass, freezer, timedelta(hours=6), step=timedelta(minutes=10))
+    assert api.call_count == calls_after_rejection, (
+        "nothing may be retried until the next anchor"
+    )
+
+
+async def test_server_errors_still_ladder(
+    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
+) -> None:
+    """A 5xx is transient and must keep the escalating retry."""
+    await set_time_zone(hass)
+    today = date(2026, 9, 7)
+    api.publish(today, day_slots(today, [0.20] * 24))
+
+    freezer.move_to(at(2026, 9, 7, 5, 55))
+    entry = make_entry(update_time="06:00")
+    await setup_integration(hass, entry)
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+
+    api.error = _response_error(503)
+    await advance(hass, freezer, timedelta(minutes=20), step=timedelta(minutes=5))
+
+    assert coordinator.update_interval is not None, "a 5xx must be retried"
+
+
+async def test_retry_after_header_is_honoured(
+    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
+) -> None:
+    """A 429 with Retry-After must set that wait instead of the ladder."""
+    await set_time_zone(hass)
+    today = date(2026, 9, 7)
+    api.publish(today, day_slots(today, [0.20] * 24))
+
+    freezer.move_to(at(2026, 9, 7, 5, 55))
+    entry = make_entry(update_time="06:00")
+    await setup_integration(hass, entry)
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+
+    api.error = _response_error(429, {"Retry-After": "900"})
+    await advance(hass, freezer, timedelta(minutes=20), step=timedelta(minutes=5))
+
+    assert coordinator.update_interval == timedelta(minutes=15), (
+        coordinator.update_interval
+    )
+
+
+async def test_absurd_retry_after_is_clamped(
+    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
+) -> None:
+    """A broken Retry-After must not park the integration for days."""
+    await set_time_zone(hass)
+    today = date(2026, 9, 7)
+    api.publish(today, day_slots(today, [0.20] * 24))
+
+    freezer.move_to(at(2026, 9, 7, 5, 55))
+    entry = make_entry(update_time="06:00")
+    await setup_integration(hass, entry)
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+
+    api.error = _response_error(429, {"Retry-After": "9999999"})
+    await advance(hass, freezer, timedelta(minutes=20), step=timedelta(minutes=5))
+
+    assert coordinator.update_interval == timedelta(seconds=MAX_RETRY_AFTER_SECONDS)
