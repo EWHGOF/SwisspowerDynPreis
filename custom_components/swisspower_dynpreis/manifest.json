@@ -1,11 +1,11 @@
 {
   "domain": "swisspower_dynpreis",
   "name": "Swisspower DynPreis",
-  "version": "0.1.0",
-  "documentation": "https://github.com/SwisspowerDynPreis/SwisspowerDynPreis",
-  "issue_tracker": "https://github.com/SwisspowerDynPreis/SwisspowerDynPreis/issues",
+  "codeowners": ["@EWHGOF"],
   "config_flow": true,
+  "documentation": "https://github.com/EWHGOF/SwisspowerDynPreis",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/EWHGOF/SwisspowerDynPreis/issues",
   "requirements": [],
-  "codeowners": ["@swisspower"],
-  "iot_class": "cloud_polling"
+  "version": "0.2.0"
 }
