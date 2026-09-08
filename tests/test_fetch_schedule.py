@@ -5,7 +5,9 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
-from aiohttp import ClientError, ClientResponseError
+from aiohttp import ClientError, ClientResponseError, RequestInfo
+from multidict import CIMultiDict, CIMultiDictProxy
+from yarl import URL
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
@@ -23,6 +25,7 @@ from custom_components.swisspower_dynpreis.const import (
 )
 
 from .helpers import (
+    AVG_TODAY,
     AVG_TOMORROW,
     CURRENT_PRICE,
     FakeApi,
@@ -310,10 +313,13 @@ async def test_timeout_is_retried_like_any_other_failure(
     api.error = TimeoutError()
     await advance(hass, freezer, timedelta(minutes=20), step=timedelta(minutes=5))
 
-    assert coordinator.last_update_success is False
     assert coordinator.update_interval is not None, (
         "a timeout must schedule a backoff retry"
     )
+    # The already published prices stay valid, so the entity keeps them - but
+    # the failure is recorded rather than hidden.
+    assert coordinator.tariff_is_stale("electricity")
+    assert float(hass.states.get(AVG_TODAY).state) == pytest.approx(0.20)
     calls_after_timeout = api.call_count
 
     api.error = None
@@ -404,10 +410,20 @@ async def test_missing_today_ladder_is_bounded(
     assert attempts <= 2 * len(TODAY_HUNT_MINUTES) + 1, attempts
 
 
-def _response_error(status: int, headers: dict[str, str] | None = None) -> ClientResponseError:
-    """Build the error aiohttp's raise_for_status would raise."""
+def _response_error(
+    status: int, headers: dict[str, str] | None = None
+) -> ClientResponseError:
+    """Build the error aiohttp's raise_for_status would raise.
+
+    request_info has to be real: ClientResponseError.__str__ reads
+    request_info.real_url, so passing None makes str(err) itself raise.
+    """
+    url = URL("https://esit.example/api/v1/tariff_name")
+    request_info = RequestInfo(
+        url=url, method="GET", headers=CIMultiDictProxy(CIMultiDict()), real_url=url
+    )
     return ClientResponseError(
-        request_info=None,
+        request_info=request_info,
         history=(),
         status=status,
         message=f"HTTP {status}",
@@ -436,8 +452,10 @@ async def test_rejected_credentials_are_not_retried_in_a_ladder(
     api.error = _response_error(403)
     await advance(hass, freezer, timedelta(minutes=20), step=timedelta(minutes=5))
 
-    assert coordinator.last_update_success is False
     assert coordinator.update_interval is None, "a rejected request must not ladder"
+    assert coordinator.tariff_is_stale("electricity"), (
+        "the rejection has to be recorded, not swallowed"
+    )
 
     calls_after_rejection = api.call_count
     await advance(hass, freezer, timedelta(hours=6), step=timedelta(minutes=10))

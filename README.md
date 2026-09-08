@@ -53,6 +53,17 @@ Liegen für den aktuellen Zeitpunkt keine Preise vor, sind die Binärsensoren
 `unknown` und nicht `off` — «unbekannt» und «nicht im günstigen Fenster» sind
 für Automationen zwei verschiedene Aussagen.
 
+Der **Current price**-Sensor führt zusätzlich zwei Attribute zur Datenaktualität:
+
+- `last_successful_fetch`: wann dieser Tariftyp zuletzt erfolgreich abgerufen wurde.
+- `from_cache`: `true`, wenn gerade zwischengespeicherte Preise angezeigt werden,
+  weil der letzte Abruf für diesen Tariftyp fehlschlug.
+
+Das Attribut `prices` (die komplette Kurve) wird bewusst nicht in die
+Langzeitdatenbank geschrieben — es ändert sich bei jedem Preiswechsel und würde
+die Datenbank unnötig aufblähen. Für Diagramme ist es im aktuellen Zustand
+weiterhin verfügbar.
+
 Die 2h- und 4h-Fenster sind echte Zeitdauern. Bei einem Tarif mit
 15-Minuten-Intervallen umfasst ein 2h-Fenster acht Intervalle, und der
 Fenster-Durchschnitt ist nach Dauer gewichtet.
@@ -105,6 +116,38 @@ Assistant ist nicht nötig.
 Hinweis: Wird für die Integration in Home Assistant «Abfrage aktiviert»
 ausgeschaltet, entfallen die Wiederholungen (Nachfragen und Fehler-Retry), die
 beiden festen Abrufzeiten bleiben aber aktiv.
+
+## Wenn etwas nicht stimmt
+
+Schlägt ein Abruf für einen Tariftyp fehl, behält dieser Typ seine bereits
+geladenen Preise, statt auf `unavailable` zu gehen: ein für 15:00 publizierter
+Preis wird nicht falsch, weil der Server gerade nicht antwortet. Die anderen
+Tariftypen sind davon nicht betroffen. Dass zwischengespeicherte Daten
+angezeigt werden, steht in den Attributen `from_cache` und
+`last_successful_fetch`. Antwortet kein einziger Tariftyp und liegen auch keine
+gespeicherten Preise vor, wird die Integration als nicht verfügbar gemeldet.
+
+Wird die Anfrage dauerhaft abgelehnt (HTTP 401/403/404 — z. B. falscher
+Messpunkt, falsches Token oder falscher Tarifname), werden die Wiederholungen
+ausgesetzt und der Grund im Log genannt; weiter zu probieren würde nichts
+bringen.
+
+Unter **Einstellungen → Geräte & Dienste → Swisspower DynPreis → ⋮ →
+Diagnose herunterladen** gibt es den kompletten Zustand des Zeitplans (welcher
+Abruf wann geplant ist, wann jeder Tariftyp zuletzt erfolgreich war, ob die
+Preise für morgen als vollständig gelten). Token und Messpunktnummer sind darin
+entfernt.
+
+Für mehr Details im Log:
+
+```yaml
+logger:
+  logs:
+    custom_components.swisspower_dynpreis: debug
+```
+
+Der Authentifizierungstoken wird nie geloggt, und die Messpunktnummer wird in
+Log-URLs maskiert.
 
 ## Weiterführende Links 
 

@@ -164,6 +164,11 @@ async def async_setup_entry(
 class SwisspowerDynPreisCurrentPriceSensor(SwisspowerDynPreisEntity, SensorEntity):
     """The price that applies right now."""
 
+    # The whole price curve is an attribute, and state is now written at every
+    # price boundary - up to 96 times a day with quarter-hourly tariffs. Left
+    # in, the recorder would store the full curve on every one of those writes.
+    _unrecorded_attributes = frozenset({"prices"})
+
     def __init__(
         self,
         *,
@@ -217,6 +222,7 @@ class SwisspowerDynPreisCurrentPriceSensor(SwisspowerDynPreisEntity, SensorEntit
             current_start = slot.get("start_timestamp")
             current_end = slot.get("end_timestamp")
             current_value = extract_slot_value(slot, self._tariff_type, self._component)
+        last_success = self.coordinator.last_success(self._tariff_type)
         return {
             "tariff_type": self._tariff_type,
             "component": self._component,
@@ -224,6 +230,12 @@ class SwisspowerDynPreisCurrentPriceSensor(SwisspowerDynPreisEntity, SensorEntit
             "current_start_timestamp": current_start,
             "current_end_timestamp": current_end,
             "current_value": current_value,
+            # So an outage that is being masked by cached prices is still
+            # visible, in the state machine and to automations.
+            "last_successful_fetch": (
+                last_success.isoformat() if last_success else None
+            ),
+            "from_cache": self.coordinator.tariff_is_stale(self._tariff_type),
         }
 
 

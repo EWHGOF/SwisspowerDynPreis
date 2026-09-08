@@ -121,35 +121,57 @@ def slots_from(
 
 
 class FakeApi:
-    """Controllable stand-in for the ESIT API."""
+    """Controllable stand-in for the ESIT API.
+
+    Slots are stored per (day, tariff type) and only the requested type is
+    returned, the way the real endpoint behaves - it takes tariff_type as a
+    query parameter.
+    """
 
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
-        self.slots_by_day: dict[date, list[dict[str, Any]]] = {}
+        self.slots: dict[tuple[date, str], list[dict[str, Any]]] = {}
         self.error: Exception | None = None
+        # Tariff types that should fail while the others still answer. None
+        # means self.error applies to every type.
+        self.failing_types: set[str] | None = None
 
-    def publish(self, day: date, slots: list[dict[str, Any]]) -> None:
-        """Make the given day's slots available to callers."""
-        self.slots_by_day[day] = slots
+    def publish(
+        self,
+        day: date,
+        slots: list[dict[str, Any]],
+        *,
+        tariff_type: str = "electricity",
+    ) -> None:
+        """Make one day's slots available for one tariff type."""
+        self.slots[(day, tariff_type)] = slots
 
-    def unpublish(self, day: date) -> None:
+    def unpublish(self, day: date, *, tariff_type: str = "electricity") -> None:
         """Take a day's slots away again."""
-        self.slots_by_day.pop(day, None)
+        self.slots.pop((day, tariff_type), None)
 
     @property
     def call_count(self) -> int:
         return len(self.calls)
 
     def __call__(self, **kwargs: Any) -> dict[str, Any]:
-        """Return the published slots that fall inside the requested window."""
+        """Return the published slots of the requested type inside the window."""
         self.calls.append(kwargs)
-        if self.error is not None:
+        tariff_type: str = kwargs["tariff_type"]
+        if self.error is not None and (
+            self.failing_types is None or tariff_type in self.failing_types
+        ):
             raise self.error
+
         start: datetime = kwargs["start"]
         end: datetime = kwargs["end"]
         prices: list[dict[str, Any]] = []
-        for day in sorted(self.slots_by_day):
-            for slot in self.slots_by_day[day]:
+        for (day, published_type), slots in sorted(
+            self.slots.items(), key=lambda item: (item[0][0], item[0][1])
+        ):
+            if published_type != tariff_type:
+                continue
+            for slot in slots:
                 raw_start = slot.get("start_timestamp")
                 if raw_start is None:
                     # A slot the API sent without a timestamp is always returned.

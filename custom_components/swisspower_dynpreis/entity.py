@@ -38,6 +38,21 @@ class SwisspowerDynPreisEntity(CoordinatorEntity[SwisspowerDynPreisCoordinator])
         )
 
     @property
+    def available(self) -> bool:
+        """Return whether this tariff type has data.
+
+        The base class ties availability to the single global
+        last_update_success, so one failing tariff type used to make every
+        entity of every type unavailable. The coordinator now carries a type's
+        previous payload forward, and a type is available as long as it has
+        one - a type that never returned anything stays unavailable.
+        """
+        if not self.coordinator.last_update_success:
+            return False
+        data = self.coordinator.data
+        return isinstance(data, dict) and self._tariff_type in data
+
+    @property
     def price_slots(self) -> list[dict[str, Any]]:
         """Return the cached slots for this tariff type, or an empty list.
 
