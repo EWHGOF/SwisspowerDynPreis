@@ -276,8 +276,12 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not data:
             return False
         local_ref = dt_util.as_local(self.reference_now())
-        day_start = dt_util.start_of_local_day(local_ref + timedelta(days=1))
-        day_end = dt_util.start_of_local_day(local_ref + timedelta(days=2))
+        # Converted to UTC before any arithmetic: subtracting two aware
+        # datetimes that share one tzinfo object ignores the offset, so on the
+        # DST days a local-to-local subtraction reports 24 hours for days that
+        # really run 23 or 25.
+        day_start = dt_util.as_utc(dt_util.start_of_local_day(local_ref + timedelta(days=1)))
+        day_end = dt_util.as_utc(dt_util.start_of_local_day(local_ref + timedelta(days=2)))
         span = (day_end - day_start).total_seconds()
         if span <= 0:
             return False
@@ -295,8 +299,10 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         if bounds is None:
                             continue
                         start, end = bounds
-                        overlap_start = max(start, day_start)
-                        overlap_end = min(end + timedelta(seconds=1), day_end)
+                        overlap_start = max(dt_util.as_utc(start), day_start)
+                        overlap_end = min(
+                            dt_util.as_utc(end) + timedelta(seconds=1), day_end
+                        )
                         if overlap_end > overlap_start:
                             covered += (overlap_end - overlap_start).total_seconds()
             if covered < span * TOMORROW_COVERAGE_RATIO:

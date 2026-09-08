@@ -161,3 +161,62 @@ async def test_current_price_goes_stale_at_the_end_of_coverage(
     assert hass.states.get(CURRENT_PRICE).state == "unknown", (
         "past the end of the covered range the price must not stay stale"
     )
+
+
+async def test_coverage_is_measured_in_real_time_across_a_dst_day(
+    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
+) -> None:
+    """Tomorrow's coverage must be judged against the real length of that day.
+
+    2026-10-25 runs 25 hours in Europe/Zurich. Subtracting two aware datetimes
+    that share one tzinfo object ignores the offset and reports 24 hours, which
+    made a day missing two of its 25 hours look 96 % covered - complete enough
+    to stop the hunt.
+    """
+    await set_time_zone(hass)
+    today = date(2026, 10, 24)
+    api.publish(today, day_slots(today, [0.20] * 24))
+    # 23 of the 25 hours of the fall-back day.
+    api.publish(
+        date(2026, 10, 25),
+        slots_from(at(2026, 10, 25, 0, 0), [0.30] * 23),
+    )
+
+    freezer.move_to(at(2026, 10, 24, 15, 0))
+    entry = make_entry(update_time="06:00")
+    await setup_integration(hass, entry)
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+
+    assert not coordinator.tomorrow_complete(coordinator.data), (
+        "23 of 25 hours is 92 % and must not count as published"
+    )
+
+    # All 25 hours: complete.
+    api.publish(
+        date(2026, 10, 25),
+        slots_from(at(2026, 10, 25, 0, 0), [0.30] * 25),
+    )
+    await advance(hass, freezer, timedelta(hours=1), step=timedelta(minutes=10))
+    assert coordinator.tomorrow_complete(coordinator.data)
+
+
+async def test_coverage_accepts_a_full_spring_forward_day(
+    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
+) -> None:
+    """2026-03-29 runs 23 hours; all 23 published must count as complete."""
+    await set_time_zone(hass)
+    today = date(2026, 3, 28)
+    api.publish(today, day_slots(today, [0.20] * 24))
+    api.publish(
+        date(2026, 3, 29),
+        slots_from(at(2026, 3, 29, 0, 0), [0.30] * 23),
+    )
+
+    freezer.move_to(at(2026, 3, 28, 15, 0))
+    entry = make_entry(update_time="06:00")
+    await setup_integration(hass, entry)
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+
+    assert coordinator.tomorrow_complete(coordinator.data), (
+        "a complete 23-hour day must not be judged against 24 hours"
+    )

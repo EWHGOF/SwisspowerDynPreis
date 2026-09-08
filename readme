@@ -80,6 +80,10 @@ Stundentarife.
 Änderungen an den Optionen werden sofort übernommen; ein Neustart von Home
 Assistant ist nicht nötig.
 
+Hinweis: Wird für die Integration in Home Assistant «Abfrage aktiviert»
+ausgeschaltet, entfallen die Wiederholungen (Nachfragen und Fehler-Retry), die
+beiden festen Abrufzeiten bleiben aber aktiv.
+
 ## Weiterführende Links 
 
 Die API-Dokumentation findet sich unter:
