@@ -10,7 +10,9 @@ from custom_components.swisspower_dynpreis.pricing import (
     SECOND,
     PriceSlot,
     average_price_for_window,
+    coverage_seconds,
     elapsed,
+    slot_payload,
     window_extreme,
 )
 
@@ -163,3 +165,66 @@ def test_average_price_for_window_weights_by_real_time() -> None:
 
     # (3 * 1.0 + 1 * 5.0) / 4, not the unweighted (1.0 + 5.0) / 2.
     assert average == pytest.approx(2.0)
+
+
+def test_coverage_counts_only_the_part_inside_the_window() -> None:
+    """A slot reaching past the window edge counts for its overlap alone."""
+    start, end_exclusive = day()
+    # Six hourly slots from 22:00 the previous day, so two of them are inside.
+    cursor = start - timedelta(hours=2)
+    built: list[PriceSlot] = []
+    for _ in range(6):
+        built.append(PriceSlot(start=cursor, end=cursor + timedelta(hours=1) - SECOND, value=0.1))
+        cursor += timedelta(hours=1)
+    assert coverage_seconds(built, start, end_exclusive) == 4 * 3600
+
+
+def test_coverage_of_a_full_day_of_quarter_hours() -> None:
+    """96 quarter-hour slots cover the day exactly, with no gap or overlap."""
+    start, end_exclusive = day()
+    assert coverage_seconds(slots([0.1] * 96, slot_minutes=15), start, end_exclusive) == (
+        24 * 3600
+    )
+
+
+def test_coverage_measures_the_real_length_of_a_dst_day() -> None:
+    """The 25-hour day needs 25 hours of prices, not 24.
+
+    A slot count cannot express this, which is why coverage is in seconds: 24
+    hourly slots on this day leave an hour uncovered, and a ratio built on a
+    24-hour assumption would call that day complete.
+    """
+    from homeassistant.util import dt as dt_util
+
+    start = dt_util.parse_datetime("2026-10-25T00:00:00+02:00")
+    end_exclusive = dt_util.parse_datetime("2026-10-26T00:00:00+01:00")
+    assert start is not None and end_exclusive is not None
+
+    cursor = start
+    built: list[PriceSlot] = []
+    for _ in range(25):
+        nxt = dt_util.as_local(dt_util.as_utc(cursor) + timedelta(hours=1))
+        built.append(PriceSlot(start=cursor, end=nxt - SECOND, value=0.1))
+        cursor = nxt
+
+    span = elapsed(start, end_exclusive).total_seconds()
+    assert span == 25 * 3600
+    assert coverage_seconds(built, start, end_exclusive) == span
+    # 24 of the 25 slots leave exactly one hour of the day without a price.
+    assert coverage_seconds(built[:24], start, end_exclusive) == 24 * 3600
+
+
+def test_coverage_ignores_a_slot_outside_the_window() -> None:
+    start, end_exclusive = day()
+    far = [PriceSlot(start=start + timedelta(days=3), end=start + timedelta(days=3, hours=1), value=0.1)]
+    assert coverage_seconds(far, start, end_exclusive) == 0.0
+
+
+def test_slot_payload_keeps_the_inclusive_end() -> None:
+    """The flat form is three keys, and the end is still the last second."""
+    slot = slots([0.1234], slot_minutes=15)[0]
+    assert slot_payload(slot) == {
+        "start": "2026-09-07T00:00:00+02:00",
+        "end": "2026-09-07T00:14:59+02:00",
+        "value": 0.1234,
+    }

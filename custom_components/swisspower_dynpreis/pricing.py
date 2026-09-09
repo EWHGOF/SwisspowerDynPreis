@@ -28,6 +28,22 @@ class PriceSlot:
         return elapsed(self.start, self.end) + SECOND
 
 
+def slot_payload(slot: PriceSlot) -> dict[str, Any]:
+    """Return the flat, chart-ready form of one slot.
+
+    The raw API shape nests the value under the tariff type and a component
+    list, so anything that wants to draw the curve has to reimplement
+    extract_slot_value. This is the shape that does not: three keys, the value
+    already resolved. ``end`` stays inclusive - the last second that still
+    belongs to the slot - the way every other timestamp here is.
+    """
+    return {
+        "start": slot.start.isoformat(),
+        "end": slot.end.isoformat(),
+        "value": slot.value,
+    }
+
+
 def elapsed(earlier: datetime, later: datetime) -> timedelta:
     """Return the real time between two instants.
 
@@ -156,6 +172,31 @@ def average_price_for_window(
     if total_seconds == 0:
         return None
     return weighted_sum / total_seconds
+
+
+def coverage_seconds(
+    slots: list[PriceSlot],
+    start: datetime,
+    end_exclusive: datetime,
+) -> float:
+    """Return how many seconds of a window actually carry a price.
+
+    average_price_for_window computes this total on its way to the mean but
+    only returns the mean. Kept as its own function rather than handed back as
+    a second value, so the callers that just want an average are not made to
+    unpack a tuple.
+
+    Counting seconds rather than slots is what makes the answer hold for any
+    slot length and for the 23- and 25-hour days around a DST change.
+    """
+    covered = 0.0
+    for slot in slots:
+        slot_start = max(slot.start, start)
+        slot_end_excl = min(slot.end + SECOND, end_exclusive)
+        if slot_start >= slot_end_excl:
+            continue
+        covered += elapsed(slot_start, slot_end_excl).total_seconds()
+    return covered
 
 
 def window_extreme(

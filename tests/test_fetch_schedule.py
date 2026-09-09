@@ -22,6 +22,7 @@ from custom_components.swisspower_dynpreis.const import (
     HUNT_STOP_HOUR,
     MAX_RETRY_AFTER_SECONDS,
     TODAY_HUNT_MINUTES,
+    WINDOW_DAYS_FORWARD,
 )
 
 from .helpers import (
@@ -36,6 +37,30 @@ from .helpers import (
     set_time_zone,
     setup_integration,
 )
+
+
+async def test_the_request_window_spans_the_configured_days(
+    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
+) -> None:
+    """The window runs from local midnight to local midnight WINDOW_DAYS_FORWARD on.
+
+    Pinned because nothing else checks the far edge: the window can be widened
+    or narrowed without a single existing test noticing, and it is what decides
+    how far ahead prices can be shown at all.
+    """
+    await set_time_zone(hass)
+    today = date(2026, 9, 7)
+    api.publish(today, day_slots(today, [0.20] * 24))
+
+    freezer.move_to(at(2026, 9, 7, 6))
+    await setup_integration(hass, make_entry())
+
+    call = api.calls[0]
+    assert call["start"] == at(2026, 9, 7)
+    assert call["end"] == at(2026, 9, 7) + timedelta(days=WINDOW_DAYS_FORWARD)
+    # Local midnight, not the moment of the request: a window that started at
+    # 06:00 would lose the prices already elapsed today.
+    assert dt_util.as_local(call["start"]).hour == 0
 
 
 async def test_healthy_day_hits_the_api_twice(
