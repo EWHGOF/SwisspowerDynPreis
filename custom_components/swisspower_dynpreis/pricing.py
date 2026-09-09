@@ -9,6 +9,11 @@ from typing import Any
 from homeassistant.util import dt as dt_util
 
 
+# Slot ends are stored inclusively (the last second that still belongs to the
+# slot), so a slot's duration is end - start plus one second.
+SECOND = timedelta(seconds=1)
+
+
 @dataclass(frozen=True)
 class PriceSlot:
     """Normalized price slot."""
@@ -16,6 +21,22 @@ class PriceSlot:
     start: datetime
     end: datetime
     value: float
+
+    @property
+    def duration(self) -> timedelta:
+        """Return how long the slot really lasts."""
+        return elapsed(self.start, self.end) + SECOND
+
+
+def elapsed(earlier: datetime, later: datetime) -> timedelta:
+    """Return the real time between two instants.
+
+    Subtracting two aware datetimes that share one tzinfo object ignores the
+    offset - CPython treats them as naive - which silently turns the 23- and
+    25-hour DST days into 24 hours. Converting to UTC first makes the naive
+    subtraction correct by construction.
+    """
+    return dt_util.as_utc(later) - dt_util.as_utc(earlier)
 
 
 def extract_slot_value(
@@ -129,7 +150,7 @@ def average_price_for_window(
         slot_end_excl = min(slot.end + timedelta(seconds=1), end_exclusive)
         if slot_start >= slot_end_excl:
             continue
-        seconds = (slot_end_excl - slot_start).total_seconds()
+        seconds = elapsed(slot_start, slot_end_excl).total_seconds()
         weighted_sum += slot.value * seconds
         total_seconds += seconds
     if total_seconds == 0:
@@ -145,34 +166,60 @@ def window_extreme(
     *,
     extreme: str,
 ) -> tuple[float, datetime, datetime] | None:
-    """Find the cheapest/most expensive consecutive window."""
+    """Find the cheapest or most expensive contiguous window in the day.
+
+    ``window_hours`` is a real duration, not a number of slots: a two-hour
+    window is eight 15-minute slots or two hourly ones. The average is weighted
+    by how long each slot contributes, and a slot that reaches past the end of
+    the window only counts for the part inside it - so the answer does not
+    depend on how finely the supplier happens to divide the day.
+
+    Returns (average, window start, inclusive window end), or None when no
+    contiguous run in the day is long enough.
+    """
     if window_hours <= 0:
         return None
-    day_slots = [slot for slot in slots if start <= slot.start < end_exclusive]
-    if not day_slots:
-        return None
+    target = timedelta(hours=window_hours)
+    day_slots = sorted(
+        (slot for slot in slots if start <= slot.start < end_exclusive),
+        key=lambda slot: slot.start,
+    )
+
     best: tuple[float, datetime, datetime] | None = None
-    for index in range(len(day_slots) - window_hours + 1):
-        window = day_slots[index : index + window_hours]
-        if len(window) < window_hours:
-            continue
-        contiguous = True
-        for prev, next_slot in zip(window, window[1:]):
-            if prev.end + timedelta(seconds=1) != next_slot.start:
-                contiguous = False
+    for index, first in enumerate(day_slots):
+        weighted = 0.0
+        covered = timedelta()
+        window_end: datetime | None = None
+        previous: PriceSlot | None = None
+
+        for slot in day_slots[index:]:
+            if previous is not None and elapsed(previous.end, slot.start) != SECOND:
+                # A gap in the curve: this run cannot be extended.
                 break
-        if not contiguous:
+            remaining = target - covered
+            duration = slot.duration
+            if duration >= remaining:
+                weighted += slot.value * remaining.total_seconds()
+                covered = target
+                window_end = slot.start + remaining - SECOND
+                break
+            weighted += slot.value * duration.total_seconds()
+            covered += duration
+            window_end = slot.end
+            previous = slot
+
+        if covered < target or window_end is None:
             continue
-        avg = sum(slot.value for slot in window) / window_hours
-        window_start = window[0].start
-        window_end = window[-1].end
-        if best is None:
-            best = (avg, window_start, window_end)
-            continue
-        if extreme == "min" and avg < best[0]:
-            best = (avg, window_start, window_end)
-        if extreme == "max" and avg > best[0]:
-            best = (avg, window_start, window_end)
+
+        average = weighted / target.total_seconds()
+        candidate = (average, first.start, window_end)
+        if (
+            best is None
+            or (extreme == "min" and average < best[0])
+            or (extreme == "max" and average > best[0])
+        ):
+            best = candidate
+
     return best
 
 

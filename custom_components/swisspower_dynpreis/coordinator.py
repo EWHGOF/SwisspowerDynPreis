@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
@@ -61,6 +62,14 @@ from .pricing import find_current_slot, slot_bounds
 _LOGGER = logging.getLogger(__name__)
 
 
+@dataclass
+class TariffStatus:
+    """How one tariff type last fared."""
+
+    last_success: datetime | None = None
+    last_error: str | None = None
+
+
 class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator for Swisspower DynPreis."""
 
@@ -82,6 +91,7 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._query_year = _coerce_year(options.get(CONF_QUERY_YEAR))
 
+        self.tariff_status: dict[str, TariffStatus] = {}
         self._fail_count = 0
         self._hunt_count = 0
         self._hunt_day: date | None = None
@@ -101,14 +111,17 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # _async_update_data sets a real interval only while retrying a failure
         # or still waiting for tomorrow's prices.
         #
-        # always_update=False: the base class notifies every listener after each
-        # refresh whether or not the payload changed. A hunt cycle that returns
-        # the same curve would otherwise re-render every entity for nothing -
-        # time-driven updates are the render clock's job, not the fetch's.
+        # always_update stays at its default True. Setting it to False skips
+        # the listener notification when the payload is unchanged, which sounds
+        # like free savings - but the current-price sensor also exposes
+        # last_successful_fetch and from_cache, which come from the fetch
+        # outcome rather than from the prices. With notification suppressed
+        # those would go stale exactly when they matter: a refresh that fails,
+        # or succeeds with an identical curve. A handful of extra renders a day
+        # is the cheaper mistake.
         kwargs: dict[str, Any] = {
             "name": DOMAIN,
             "update_interval": None,
-            "always_update": False,
         }
         # The config_entry keyword was added after 2024.3, where the base class
         # instead reads the current_entry ContextVar. Passing it where it exists
@@ -239,7 +252,9 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Every anchor starts a fresh ladder. Without this the failure counter
         # would only ever reset on a success, so once the backoff had given up
         # it stayed given up: from the next day on there was one attempt per
-        # day and no retries at all.
+        # day and no retries at all. The per-type status is deliberately kept:
+        # it records when each type last succeeded, which must survive an
+        # anchor rather than be forgotten by it.
         self._fail_count = 0
         self._hunt_count = 0
         # async_refresh rather than async_request_refresh: the latter goes
@@ -426,17 +441,48 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         slot_fill_end = query_end - timedelta(seconds=1)
 
-        try:
-            data = await self._async_fetch_all(start, query_end, slot_fill_end)
-        except (ClientError, TimeoutError, ValueError) as err:
-            # TimeoutError matters: api.py wraps every request in a timeout, and
-            # DataUpdateCoordinator handles a bare TimeoutError itself. That
-            # would skip _note_failure and leave no retry scheduled at all.
+        fresh, errors = await self._async_fetch_all(start, query_end, slot_fill_end)
+
+        # Carry a tariff type's previous payload forward when this cycle could
+        # not refresh it. Prices are forecast data: a slot already published
+        # for 15:00 does not become wrong because the server is briefly down,
+        # and discarding four good types because the fifth failed - which is
+        # what raising here used to do - made every entity of every type
+        # unavailable at once.
+        previous = self.data if isinstance(self.data, dict) else {}
+        data: dict[str, Any] = {}
+        for tariff_type in self._tariff_types:
+            if tariff_type in fresh:
+                data[tariff_type] = fresh[tariff_type]
+            elif tariff_type in previous:
+                data[tariff_type] = previous[tariff_type]
+
+        self._update_tariff_status(fresh, errors)
+
+        if not data:
+            # Nothing usable at all, cached or fresh: this is a real outage and
+            # has to be visible rather than silently serving nothing.
+            err = next(iter(errors.values()))
             self._note_failure(err)
-            raise UpdateFailed(f"Failed to fetch tariffs: {err}") from err
-        except UpdateFailed as err:
-            self._note_failure(err)
-            raise
+            raise UpdateFailed(f"Failed to fetch tariffs: {describe_error(err)}")
+
+        if errors:
+            _LOGGER.warning(
+                "Serving cached prices for %s: %s",
+                ", ".join(sorted(errors)),
+                "; ".join(
+                    f"{key}: {describe_error(value)}"
+                    for key, value in sorted(errors.items())
+                ),
+            )
+            # Retry soon, but do not report failure: the entities that still
+            # have data are genuinely fine.
+            self._fail_count += 1
+            self.update_interval = self._failure_interval(
+                next(iter(errors.values()))
+            )
+            self._async_schedule_render(data)
+            return data
 
         self._fail_count = 0
         self.update_interval = self._hunt_interval(data)
@@ -451,40 +497,111 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         start: datetime,
         query_end: datetime,
         slot_fill_end: datetime,
-    ) -> dict[str, Any]:
-        """Fetch every configured tariff type for the request window."""
-        data: dict[str, Any] = {}
+    ) -> tuple[dict[str, Any], dict[str, Exception]]:
+        """Fetch every configured tariff type, collecting failures per type.
+
+        One broken tariff type must not cost the others their data, so each is
+        attempted and its error recorded rather than raised. Requests stay
+        sequential: with five types and a 20 second timeout each, a cycle can
+        take 100 seconds, and the retry intervals are minutes.
+        """
+        payloads: dict[str, Any] = {}
+        errors: dict[str, Exception] = {}
 
         for tariff_type in self._tariff_types:
-            response = await self._client.fetch_tariffs(
-                tariff_type=tariff_type,
-                start=start,
-                end=query_end,
-                metering_code=self._metering_code,
-                tariff_name=self._tariff_name,
+            try:
+                payloads[tariff_type] = await self._async_fetch_one(
+                    tariff_type, start, query_end, slot_fill_end
+                )
+            except (ClientError, TimeoutError, ValueError, UpdateFailed) as err:
+                # TimeoutError matters: api.py wraps every request in a timeout,
+                # and DataUpdateCoordinator handles a bare TimeoutError itself,
+                # which would skip the retry scheduling entirely.
+                _LOGGER.debug(
+                    "Fetching %s failed: %s", tariff_type, describe_error(err)
+                )
+                errors[tariff_type] = err
+
+        return payloads, errors
+
+    async def _async_fetch_one(
+        self,
+        tariff_type: str,
+        start: datetime,
+        query_end: datetime,
+        slot_fill_end: datetime,
+    ) -> dict[str, Any]:
+        """Fetch and normalize one tariff type."""
+        response = await self._client.fetch_tariffs(
+            tariff_type=tariff_type,
+            start=start,
+            end=query_end,
+            metering_code=self._metering_code,
+            tariff_name=self._tariff_name,
+        )
+
+        # The ESIT API normally returns the price slots directly without a
+        # wrapping ``status`` field. Only treat the response as an error when
+        # an explicit, non-ok status is present.
+        status = response.get("status")
+        if isinstance(status, str) and status.lower() not in ("ok", "success"):
+            raise UpdateFailed(
+                response.get("message")
+                or response.get("error")
+                or f"API error: {status}"
             )
 
-            # The ESIT API normally returns the price slots directly without a
-            # wrapping ``status`` field. Only treat the response as an error when
-            # an explicit, non-ok status is present.
-            status = response.get("status")
-            if isinstance(status, str) and status.lower() not in ("ok", "success"):
-                raise UpdateFailed(
-                    response.get("message")
-                    or response.get("error")
-                    or f"API error: {status}"
-                )
+        normalized = _normalize_tariff_response(response, window_end=slot_fill_end)
+        if not normalized.get("prices"):
+            _LOGGER.warning(
+                "No price slots returned for tariff_type=%s (response keys: %s)",
+                tariff_type,
+                list(response.keys()),
+            )
+        return normalized
 
-            normalized = _normalize_tariff_response(response, window_end=slot_fill_end)
-            if not normalized.get("prices"):
-                _LOGGER.warning(
-                    "No price slots returned for tariff_type=%s (response keys: %s)",
-                    tariff_type,
-                    list(response.keys()),
-                )
-            data[tariff_type] = normalized
+    def _update_tariff_status(
+        self, fresh: dict[str, Any], errors: dict[str, Exception]
+    ) -> None:
+        """Record, per tariff type, when it last succeeded and why it failed."""
+        now = dt_util.now()
+        for tariff_type in self._tariff_types:
+            status = self.tariff_status.setdefault(tariff_type, TariffStatus())
+            if tariff_type in fresh:
+                status.last_success = now
+                status.last_error = None
+            elif tariff_type in errors:
+                status.last_error = describe_error(errors[tariff_type])
 
-        return data
+    def schedule_state(self) -> dict[str, Any]:
+        """Describe what the fetch schedule is currently doing.
+
+        Exposed here so diagnostics does not have to reach into private
+        attributes, and so there is one place to keep it truthful.
+        """
+        data = self.data if isinstance(self.data, dict) else {}
+        return {
+            "last_update_success": self.last_update_success,
+            "update_interval": (
+                self.update_interval.total_seconds() if self.update_interval else None
+            ),
+            "consecutive_failures": self._fail_count,
+            "hunting_for": self._hunt_kind,
+            "hunt_attempts_today": self._hunt_count,
+            "covers_now": self.covers_now(data),
+            "tomorrow_complete": self.tomorrow_complete(data),
+            "reference_now": self.reference_now().isoformat(),
+        }
+
+    def tariff_is_stale(self, tariff_type: str) -> bool:
+        """Return whether this tariff type is being served from cache."""
+        status = self.tariff_status.get(tariff_type)
+        return bool(status and status.last_error)
+
+    def last_success(self, tariff_type: str) -> datetime | None:
+        """Return when this tariff type was last fetched successfully."""
+        status = self.tariff_status.get(tariff_type)
+        return status.last_success if status else None
 
 
 def _normalize_tariff_response(
@@ -589,6 +706,20 @@ def _coerce_time(value: Any) -> time | None:
     if isinstance(value, str):
         return dt_util.parse_time(value)
     return None
+
+
+def describe_error(err: Exception) -> str:
+    """Describe an exception without trusting its __str__.
+
+    aiohttp's ClientResponseError reads request_info.real_url when formatted,
+    and a few library exceptions raise from __str__. That must not turn a
+    handled fetch failure into an unhandled one.
+    """
+    try:
+        text = str(err)
+    except Exception:  # noqa: BLE001 - the point is that anything can happen
+        text = ""
+    return text or type(err).__name__
 
 
 def _parse_retry_after(headers: Any) -> timedelta | None:

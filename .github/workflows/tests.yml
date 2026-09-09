@@ -11,10 +11,18 @@ on:
 # one, so a deprecation surfaces here rather than in an issue report. Bump the
 # second pair when a newer release appears.
 #
-# Not included yet: home-assistant/actions/hassfest and hacs/action. Both are
-# worth adding, but manifest.json still points at the wrong repository and
-# names a codeowner that does not apply, so they would fail for reasons this
-# workflow cannot fix.
+# The HACS validator (hacs/action) is deliberately not here yet. It also checks
+# things no commit can set: the repository needs a description and topics on
+# GitHub, and the domain has to be added to home-assistant/brands. Once those
+# are done, add:
+#
+#   hacs:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+#       - uses: hacs/action@main
+#         with:
+#           category: integration
 jobs:
   pytest:
     name: pytest (HA ${{ matrix.homeassistant }})
@@ -48,3 +56,10 @@ jobs:
 
       - name: Run tests
         run: python -m pytest tests/ -q
+
+  hassfest:
+    name: hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master

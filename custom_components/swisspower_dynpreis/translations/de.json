@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Swisspower DynPreis einrichten",
-        "description": "Wähle die Abrufmethode für die dynamischen Tarife (Tarifname oder Authentifizierungstoken).",
+        "description": "Wähle die Abrufmethode für die dynamischen Tarife: über den Tarifnamen oder mit Messpunktnummer und Authentifizierungstoken.",
         "data": {
           "name": "Name",
           "api_url": "API-URL",
@@ -27,18 +27,21 @@
           "tariff_types": "Tariftypen"
         }
       }
+    },
+    "error": {
+      "invalid_url": "Das ist keine gültige URL. Sie muss mit http:// oder https:// beginnen."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "Swisspower DynPreis Optionen",
+        "description": "Die API wird an der Morgen- und an der Nachmittagszeit abgefragt. Die Preise für morgen werden von den meisten Energieversorgern erst nachmittags publiziert; fehlen sie noch, wird nach der Nachmittagszeit in grösseren Abständen erneut nachgefragt.",
         "data": {
-          "update_time": "Abrufzeit (täglich, lokale Zeit)",
+          "update_time": "Abrufzeit morgens (lokale Zeit)",
           "update_time_pm": "Abrufzeit nachmittags (lokale Zeit)",
           "query_year": "Testjahr (optional)"
-        },
-        "description": "Die API wird an der Morgen- und an der Nachmittagszeit abgefragt. Die Preise für morgen werden von den meisten Energieversorgern erst nachmittags publiziert; fehlen sie noch, wird nach der Nachmittagszeit in grösseren Abständen erneut nachgefragt."
+        }
       }
     }
   }

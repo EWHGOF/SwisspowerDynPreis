@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -16,6 +17,19 @@ from yarl import URL
 from .const import API_BASE, METHOD_METERING_CODE, TIMEOUT_SECONDS
 
 LOGGER = logging.getLogger(__name__)
+
+# Query parameters that identify the customer rather than the request.
+_SENSITIVE_PARAMS = ("metering_code", "token")
+
+
+def redact_url(url: URL | str) -> str:
+    """Return the URL with customer-identifying parameters masked."""
+    text = str(url)
+    for param in _SENSITIVE_PARAMS:
+        text = re.sub(
+            rf"([?&]{param}=)[^&]*", r"\1**REDACTED**", text, flags=re.IGNORECASE
+        )
+    return text
 
 
 class SwisspowerDynPreisApiClient:
@@ -68,17 +82,17 @@ class SwisspowerDynPreisApiClient:
         async with async_timeout.timeout(TIMEOUT_SECONDS):
             async with self._session.get(url, headers=headers) as response:
                 response_text = await response.text()
-                LOGGER.info(
-                    "SwisspowerDynPreis API request: method=GET url=%s headers=%s",
-                    url,
-                    headers,
-                )
-                LOGGER.info(
-                    "SwisspowerDynPreis API response: status=%s headers=%s body=%s",
+                # Never log the request headers: they carry the bearer token.
+                # The URL is redacted because it carries the metering code, and
+                # everything is at debug level - this used to be info, which
+                # put the token into every user's log by default.
+                LOGGER.debug(
+                    "GET %s -> HTTP %s (%s bytes)",
+                    redact_url(url),
                     response.status,
-                    dict(response.headers),
-                    response_text,
+                    len(response_text),
                 )
+                LOGGER.debug("Response body for %s: %s", tariff_type, response_text)
                 response.raise_for_status()
                 try:
                     response_data: Any = json.loads(response_text)
