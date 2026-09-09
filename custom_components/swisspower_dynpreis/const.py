@@ -25,8 +25,14 @@ TIMEOUT_SECONDS = 20
 
 # How many days ahead the request window reaches. The window runs from the
 # start of the local day to the start of the local day this many days later,
-# so day 0 is today and day 1 is tomorrow.
-WINDOW_DAYS_FORWARD = 2
+# so day 0 is today, day 1 tomorrow, and day 2 the day after.
+#
+# Asking for more days than the supplier has published is not a new thing this
+# value does: the window has always reached into tomorrow, and every morning
+# before the afternoon publication it comes back with today only. A day-ahead
+# supplier will simply leave the last day empty, and price_days reports its
+# coverage as 0. It also sets how many days price_days summarizes.
+WINDOW_DAYS_FORWARD = 3
 
 # Escalating wait after a failed fetch, in minutes. The chain gives up after
 # BACKOFF_MAX_TRIES consecutive failures and waits for the next daily anchor,

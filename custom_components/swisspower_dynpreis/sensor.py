@@ -13,14 +13,24 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_TARIFF_TYPES, DEFAULT_NAME, DOMAIN
+from .const import (
+    CONF_TARIFF_TYPES,
+    DEFAULT_NAME,
+    DOMAIN,
+    TOMORROW_COVERAGE_RATIO,
+    WINDOW_DAYS_FORWARD,
+)
 from .coordinator import SwisspowerDynPreisCoordinator
 from .entity import SwisspowerDynPreisEntity
-from .pricing import extract_slot_value, find_current_slot
+from .pricing import extract_slot_value, find_current_slot, normalize_price_slots
 from .stats import (
     average_for_day,
+    day_is_complete,
     day_stats,
+    day_summaries,
     next_change,
+    slots_for_day,
+    upcoming_slots,
     window_attrs,
     window_value,
 )
@@ -166,8 +176,13 @@ class SwisspowerDynPreisCurrentPriceSensor(SwisspowerDynPreisEntity, SensorEntit
 
     # The whole price curve is an attribute, and state is now written at every
     # price boundary - up to 96 times a day with quarter-hourly tariffs. Left
-    # in, the recorder would store the full curve on every one of those writes.
-    _unrecorded_attributes = frozenset({"prices"})
+    # in, the recorder would store the full curve on every one of those writes,
+    # and there are now five curves rather than one. tomorrow_valid is
+    # deliberately not in here: one bool that flips once a day is worth having
+    # in the history.
+    _unrecorded_attributes = frozenset(
+        {"prices", "prices_today", "prices_tomorrow", "prices_upcoming", "price_days"}
+    )
 
     def __init__(
         self,
@@ -214,7 +229,12 @@ class SwisspowerDynPreisCurrentPriceSensor(SwisspowerDynPreisEntity, SensorEntit
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         slots = self.price_slots
-        slot = find_current_slot(slots, dt_util.now())
+        # Read once. Every attribute below is derived from the same instant, so
+        # a render cannot report a current slot from one clock reading and a
+        # future curve from another - the boundary the render timer fires on is
+        # exactly where those two would disagree.
+        now = dt_util.now()
+        slot = find_current_slot(slots, now)
         current_start = None
         current_end = None
         current_value = None
@@ -223,10 +243,28 @@ class SwisspowerDynPreisCurrentPriceSensor(SwisspowerDynPreisEntity, SensorEntit
             current_end = slot.get("end_timestamp")
             current_value = extract_slot_value(slot, self._tariff_type, self._component)
         last_success = self.coordinator.last_success(self._tariff_type)
+        # Normalized once and handed to every display helper below. This is
+        # also the only place the component is applied: the raw "prices"
+        # attribute is the unfiltered API payload, identical on every component
+        # sensor of a tariff type, which is why a chart cannot use it directly.
+        normalized = normalize_price_slots(slots, self._tariff_type, self._component)
         return {
             "tariff_type": self._tariff_type,
             "component": self._component,
             "prices": slots,
+            # The chart-ready views: values already resolved for this entity's
+            # tariff type and component, "end" still inclusive.
+            "prices_today": slots_for_day(normalized, now, 0),
+            "prices_tomorrow": slots_for_day(normalized, now, 1),
+            "prices_upcoming": upcoming_slots(normalized, now),
+            "price_days": day_summaries(normalized, now, WINDOW_DAYS_FORWARD),
+            # So a dashboard can tell "tomorrow is not published yet" from
+            # "tomorrow really is 0.00", which an empty list alone cannot say.
+            # About this entity's own curve, not the coordinator's all-types
+            # view: that one exists to decide whether to ask the API again.
+            "tomorrow_valid": day_is_complete(
+                normalized, now, 1, TOMORROW_COVERAGE_RATIO
+            ),
             "current_start_timestamp": current_start,
             "current_end_timestamp": current_end,
             "current_value": current_value,

@@ -301,6 +301,12 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         any slot length and for the 23- and 25-hour days around a DST change. A
         partial publication - the API returning only the first few hours of
         tomorrow - correctly counts as incomplete.
+
+        Deliberately tomorrow, not the end of the fetch window: the window
+        reaches a day further so the curve can be shown, but a day-ahead
+        supplier never publishes that far. Generalizing this to the window end
+        would leave the hunt ladder in HUNT_MINUTES running every afternoon for
+        prices that are never going to exist.
         """
         if not data:
             return False
