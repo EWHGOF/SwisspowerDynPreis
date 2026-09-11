@@ -14,6 +14,7 @@ Two clocks drive this integration and they are deliberately separate:
 from __future__ import annotations
 
 import inspect
+import json
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
@@ -92,6 +93,12 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._query_year = _coerce_year(options.get(CONF_QUERY_YEAR))
 
         self.tariff_status: dict[str, TariffStatus] = {}
+        # The API's answers as received, per tariff type, before this
+        # integration touches them. Read by the diagnostic raw response sensor,
+        # which is disabled by default - see _capture_raw.
+        self.raw_responses: dict[str, Any] = {}
+        self.raw_captured: dict[str, datetime] = {}
+        self.raw_bytes: dict[str, int | None] = {}
         self._fail_count = 0
         self._hunt_count = 0
         self._hunt_day: date | None = None
@@ -560,6 +567,11 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             tariff_name=self._tariff_name,
         )
 
+        # Before anything reads it, including the status check below: the point
+        # of the raw capture is to show what the API actually sent, especially
+        # in the cases this method goes on to reject or warn about.
+        self._capture_raw(tariff_type, response)
+
         # The ESIT API normally returns the price slots directly without a
         # wrapping ``status`` field. Only treat the response as an error when
         # an explicit, non-ok status is present.
@@ -579,6 +591,60 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 list(response.keys()),
             )
         return normalized
+
+    def _capture_raw(self, tariff_type: str, response: Any) -> None:
+        """Keep one tariff type's answer exactly as it arrived.
+
+        Held per tariff type because each is its own HTTP request, and only the
+        newest one: this is a window onto the last exchange, not a log. A type
+        whose fetch failed keeps the answer from the last one that did not,
+        which is why every entry carries its own timestamp.
+
+        The memory this costs is smaller than it looks. _normalize_slots copies
+        each slot dict shallowly, so the raw payload and the processed one share
+        the nested component lists - what is held twice is the thin outer dicts,
+        not the values.
+        """
+        self.raw_responses[tariff_type] = response
+        self.raw_captured[tariff_type] = dt_util.now()
+        try:
+            # Measured once here rather than on every render: the payload only
+            # changes when a fetch brings a new one, and the sensor that shows
+            # its size re-renders far more often than that.
+            #
+            # json.dumps escapes non-ASCII by default, so the result is pure
+            # ASCII and its length really is a byte count. Turning that off
+            # would quietly make the number wrong for any payload carrying an
+            # umlaut.
+            self.raw_bytes[tariff_type] = len(
+                json.dumps(response, separators=(",", ":"))
+            )
+        except (TypeError, ValueError):
+            # It came from response.json(), so this should not happen - but
+            # measuring the payload must never be what breaks a fetch.
+            self.raw_bytes[tariff_type] = None
+
+    def raw_response_state(self) -> dict[str, Any]:
+        """Describe the captured raw responses, for the diagnostic sensor.
+
+        One place that knows the shape, so the sensor stays a thin view and
+        diagnostics could use the same thing.
+        """
+        return {
+            "responses": dict(self.raw_responses),
+            "captured": {
+                tariff_type: captured.isoformat()
+                for tariff_type, captured in sorted(self.raw_captured.items())
+            },
+            "bytes": dict(sorted(self.raw_bytes.items())),
+        }
+
+    def raw_total_bytes(self) -> int | None:
+        """Return the size of everything captured, or None if nothing is."""
+        sizes = [size for size in self.raw_bytes.values() if size is not None]
+        if not sizes:
+            return None
+        return sum(sizes)
 
     def _update_tariff_status(
         self, fresh: dict[str, Any], errors: dict[str, Exception]
@@ -605,6 +671,9 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "update_interval": (
                 self.update_interval.total_seconds() if self.update_interval else None
             ),
+            # How far ahead every request reaches, so a diagnostics download
+            # explains an empty far day rather than leaving it a mystery.
+            "window_days_forward": WINDOW_DAYS_FORWARD,
             "consecutive_failures": self._fail_count,
             "hunting_for": self._hunt_kind,
             "hunt_attempts_today": self._hunt_count,

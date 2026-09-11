@@ -8,6 +8,9 @@
           "name": "Name",
           "api_url": "API-URL",
           "method": "Abrufmethode"
+        },
+        "data_description": {
+          "api_url": "Vorgabe nur ändern, wenn der Energieversorger einen anderen Endpunkt verwendet."
         }
       },
       "metering": {
@@ -17,6 +20,9 @@
           "metering_code": "Messpunktnummer",
           "token": "Token",
           "tariff_types": "Tariftypen"
+        },
+        "data_description": {
+          "tariff_types": "Je ausgewähltem Typ entsteht ein eigener Satz Entities, und jeder Typ ist eine eigene API-Abfrage pro Abruf. Standardmässig aktiv sind nur die Preis-Entities; die Zeitstempel-, Ein/Aus- und Diagnose-Entities werden inaktiv angelegt und lassen sich einzeln einschalten."
         }
       },
       "tariff_name": {
@@ -25,6 +31,9 @@
         "data": {
           "tariff_name": "Tarifname",
           "tariff_types": "Tariftypen"
+        },
+        "data_description": {
+          "tariff_types": "Je ausgewähltem Typ entsteht ein eigener Satz Entities, und jeder Typ ist eine eigene API-Abfrage pro Abruf. Standardmässig aktiv sind nur die Preis-Entities; die Zeitstempel-, Ein/Aus- und Diagnose-Entities werden inaktiv angelegt und lassen sich einzeln einschalten."
         }
       }
     },
@@ -36,11 +45,16 @@
     "step": {
       "init": {
         "title": "Swisspower DynPreis Optionen",
-        "description": "Die API wird an der Morgen- und an der Nachmittagszeit abgefragt. Die Preise für morgen werden von den meisten Energieversorgern erst nachmittags publiziert; fehlen sie noch, wird nach der Nachmittagszeit in grösseren Abständen erneut nachgefragt.",
+        "description": "Die API wird an der Morgen- und an der Nachmittagszeit abgefragt, jeweils für ein Fenster über heute und die drei folgenden Tage. Die Preise für morgen werden von den meisten Energieversorgern erst nachmittags publiziert; fehlen sie noch, wird nach der Nachmittagszeit in grösseren Abständen erneut nachgefragt. Der Button «Refresh now» löst sofort einen Abruf ausserhalb dieses Zeitplans aus.",
         "data": {
           "update_time": "Abrufzeit morgens (lokale Zeit)",
           "update_time_pm": "Abrufzeit nachmittags (lokale Zeit)",
           "query_year": "Testjahr (optional)"
+        },
+        "data_description": {
+          "update_time": "Der erste Abruf des Tages.",
+          "update_time_pm": "Der zweite Abruf. Die meisten Energieversorger publizieren die Preise für morgen erst am Nachmittag; ein reiner Morgen-Abruf sieht sie also nie.",
+          "query_year": "Nur zum Testen: schreibt das Abfragejahr um. Für den Normalbetrieb leer lassen."
         }
       }
     }

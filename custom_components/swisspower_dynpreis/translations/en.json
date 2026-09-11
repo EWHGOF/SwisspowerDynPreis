@@ -8,6 +8,9 @@
           "name": "Name",
           "api_url": "API URL",
           "method": "Request method"
+        },
+        "data_description": {
+          "api_url": "Leave the default unless your supplier publishes on a different endpoint."
         }
       },
       "metering": {
@@ -17,6 +20,9 @@
           "metering_code": "Metering code",
           "token": "Token",
           "tariff_types": "Tariff types"
+        },
+        "data_description": {
+          "tariff_types": "One set of entities per selected type, and one API request per type per fetch. Only the price entities are enabled by default; the timestamp, on/off and diagnostic ones are created disabled and can be switched on individually."
         }
       },
       "tariff_name": {
@@ -25,6 +31,9 @@
         "data": {
           "tariff_name": "Tariff name",
           "tariff_types": "Tariff types"
+        },
+        "data_description": {
+          "tariff_types": "One set of entities per selected type, and one API request per type per fetch. Only the price entities are enabled by default; the timestamp, on/off and diagnostic ones are created disabled and can be switched on individually."
         }
       }
     },
@@ -36,11 +45,16 @@
     "step": {
       "init": {
         "title": "Swisspower DynPreis options",
-        "description": "The API is queried at the morning and the afternoon time. Most suppliers only publish tomorrow's prices in the afternoon; while they are still missing, the integration asks again at growing intervals after the afternoon time.",
+        "description": "The API is queried at the morning and the afternoon time, each time for a window covering today and the next three days. Most suppliers only publish tomorrow's prices in the afternoon; while they are still missing, the integration asks again at growing intervals after the afternoon time. The \"Refresh now\" button fetches immediately, outside this schedule.",
         "data": {
           "update_time": "Fetch time, morning (local time)",
           "update_time_pm": "Fetch time, afternoon (local time)",
           "query_year": "Test year (optional)"
+        },
+        "data_description": {
+          "update_time": "The first fetch of the day.",
+          "update_time_pm": "The second fetch. Most suppliers publish tomorrow's prices in the afternoon, so a morning-only fetch would never see them.",
+          "query_year": "For testing only: rewrites the year the API is asked for. Leave empty for normal operation."
         }
       }
     }

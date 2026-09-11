@@ -23,14 +23,21 @@ Ein Wizard führt durch die Konfiguration:
 - **Messpunktnummer** (Metering Code) und **Authentifizierungstoken** für den produktiven API-Zugriff oder
 - **Tarifname** (z. B. D1) ohne Token. 
 
-Zusätzlich können die gewünschten Tariftypen ausgewählt werden (electricity, grid, dso, integrated, feed_in).
+Zusätzlich können die gewünschten Tariftypen ausgewählt werden:
 
-Electricity = Der Preis für die Energie
-Grid = Netznutzung
-Integrated = die Summe von allen Bestandteilen. Inklusive abgaben.
-Feed_in = ist der Preis für die Rückvergütung von erzeugter energie.
+| Tariftyp | Bedeutung |
+| --- | --- |
+| `electricity` | Der Preis für die Energie |
+| `grid` | Netznutzung |
+| `dso` | noch nicht beschrieben — siehe [API-Dokumentation](https://esit.code-fabrik.ch/doc_scalar) |
+| `integrated` | Die Summe aller Bestandteile, inklusive Abgaben |
+| `feed_in` | Der Preis für die Rückvergütung von erzeugter Energie |
 
-## Sensoren
+Je ausgewähltem Typ entsteht ein eigener Satz Entities, und jeder Typ ist eine
+eigene API-Abfrage pro Abruf. Es lohnt sich also, nur die Typen zu wählen, die
+der Energieversorger auch liefert.
+
+## Entities
 
 Für jeden ausgewählten Tariftyp werden Entities in zwei Domains erstellt, dazu
 kommt ein Bedienelement für die gesamte Integration.
@@ -60,22 +67,31 @@ Als `button.*`:
 - **Refresh now**: löst sofort einen Abruf aus — siehe
   [Manuell abrufen](#manuell-abrufen).
 
+Als Diagnose-Entity (`sensor.*`, standardmässig inaktiv):
+
+- **API response**: die unverarbeitete API-Antwort — siehe
+  [Rohe API-Antwort ansehen](#rohe-api-antwort-ansehen).
+
 ### Was standardmässig aktiv ist
 
-Für die Mess- und Statistik-Entities (`sensor.*` und `binary_sensor.*`) gilt:
-aktiv ist, was als Zustand eine **Zahl** führt. Das sind alle
-CHF/kWh-Sensoren, also **Current price** (auch je Komponente), **Average price
-today/tomorrow** sowie die **Lowest/Highest**-Fenster.
+Drei Arten von Entities, drei Regeln:
 
-Inaktiv angelegt werden **Next change** (ein Zeitstempel) und **sämtliche
-Binärsensoren** (ein/aus) — je Tariftyp zehn Entities, bei allen fünf Typen also
-50, die die meisten Installationen nie brauchen. Sie fehlen aber nicht: sie
-stehen in der Entitätenverwaltung und lassen sich einzeln einschalten
-(Einstellungen → Geräte & Dienste → Entitäten → Entität → Aktiviert).
+| Art | Standard | Warum |
+| --- | --- | --- |
+| Messwerte (`sensor.*`, `binary_sensor.*`) | aktiv, **wenn der Zustand eine Zahl ist** | Das sind die Preise, weswegen man die Integration installiert |
+| Bedienelement (`button.*`) | immer aktiv | Ein Bedienelement, das man erst suchen und einschalten muss, ist keines |
+| Diagnose (**API response**) | immer inaktiv | Trägt zehntausende Zeichen Rohdaten, die nur beim Fehlersuchen jemand braucht |
 
-Der **Refresh now**-Button ist davon ausgenommen und immer aktiv: er ist ein
-Bedienelement und kein Messwert, und ein Bedienelement, das man erst suchen und
-einschalten muss, ist keines.
+Aktiv sind damit alle CHF/kWh-Sensoren — **Current price** (auch je Komponente),
+**Average price today/tomorrow** und die **Lowest/Highest**-Fenster — sowie der
+Button.
+
+Inaktiv angelegt werden **Next change** (ein Zeitstempel), **sämtliche
+Binärsensoren** (ein/aus) und **API response**. Bei allen fünf Tariftypen sind
+das rund 50 Entities, die die meisten Installationen nie brauchen. Sie fehlen
+aber nicht: sie stehen in der Entitätenverwaltung und lassen sich einzeln
+einschalten (Einstellungen → Geräte & Dienste → Entitäten → Entität →
+Aktiviert).
 
 Home Assistant liest diese Vorgabe nur beim erstmaligen Anlegen einer Entität.
 Eine bestehende Installation behält also alles, was heute aktiv ist; die
@@ -101,12 +117,27 @@ Fenster-Durchschnitt ist nach Dauer gewichtet.
 
 ### Achtung beim Update
 
+Was sich beim Aktualisieren einer bestehenden Installation ändert — und was
+nicht:
+
+| Änderung | Auswirkung auf eine bestehende Installation |
+| --- | --- |
+| Binärsensoren in eigener Domain | **Umstellung nötig**, siehe unten |
+| Abruffenster reicht drei Tage voraus | keine; die Attribute `price_days` und `prices_upcoming` werden einfach länger |
+| Nur Entities mit Zahlenwert standardmässig aktiv | keine; bestehende Entities behalten ihren Zustand |
+| Neuer Button `Refresh now` | kommt beim ersten Start dazu, aktiv |
+| Neue Diagnose-Entity `API response` | kommt beim ersten Start dazu, inaktiv |
+
 Die Binärsensoren lagen früher fälschlich in der `sensor`-Domain (mit dem
 Zustand `on`/`off`). Beim ersten Start nach dem Update werden die alten
 `sensor.*`-Einträge entfernt und als `binary_sensor.*` neu angelegt.
 Automationen, Skripte und Dashboards, die eine dieser Entities über
 `sensor.…` ansprechen, müssen auf `binary_sensor.…` umgestellt werden. Die
 übrigen Sensoren behalten ihre Entity-ID.
+
+Eine bestehende Installation, die die Zeitstempel- und Ein/Aus-Entities
+loswerden will, muss sie von Hand deaktivieren oder die Integration neu
+einrichten — Home Assistant wendet die neue Vorgabe nicht rückwirkend an.
 
 ## Zukünftige Tarife anzeigen
 
@@ -272,6 +303,56 @@ nach einem Druck wieder von vorn, genau wie an einer der festen Abrufzeiten.
 Hat die Wiederholungsreihe nach sechs Fehlversuchen aufgegeben, ist der Button
 also der Weg zurück, ohne auf die nächste Abrufzeit zu warten.
 
+## Rohe API-Antwort ansehen
+
+Jede andere Entity zeigt einen Wert, den die Integration berechnet hat. Sieht
+einer davon falsch aus, ist die nächste Frage immer dieselbe: hat die API das so
+geschickt, oder haben wir uns das ausgedacht? Die Entity **`sensor.*_api_response`**
+beantwortet sie — sie hält die Antwort der API so, wie sie angekommen ist,
+**bevor** die Integration sie verarbeitet.
+
+Sie ist **standardmässig inaktiv** und muss in der Entitätenverwaltung
+eingeschaltet werden (Einstellungen → Geräte & Dienste → Entitäten →
+`API response` → Aktiviert).
+
+| | |
+| --- | --- |
+| Zustand | Grösse der gespeicherten Antworten in Bytes |
+| `responses` | pro Tariftyp die dekodierte Antwort, unverändert |
+| `captured` | pro Tariftyp, wann diese Antwort ankam |
+| `bytes` | pro Tariftyp deren Grösse |
+
+Gespeichert wird immer nur die **letzte** Antwort je Tariftyp — ein Fenster auf
+den letzten Austausch, kein Protokoll. Schlägt ein Abruf fehl, bleibt die letzte
+angekommene Antwort stehen; wie alt sie ist, sagt `captured`.
+
+Erfasst wird direkt nach dem Empfang, noch vor jeder Prüfung. Genau die Fälle,
+die sonst schwer zu greifen sind, stehen also drin:
+
+- die API antwortet mit HTTP 200 und einer **leeren Liste** — ohne diese Entity
+  sehen «keine Preise» und «keine Antwort» gleich aus;
+- die Antwort ist **kein JSON** (steht dann als `{"raw": "<Text>"}` drin);
+- die Antwort trägt ein **Fehler-Status-Feld**, das die Integration ablehnt.
+
+### Grenzen
+
+- **Nichts wird entfernt.** Im Unterschied zur Diagnose-Datei sind Inhalte hier
+  nicht maskiert. Der Authentifizierungstoken kann nicht darin vorkommen (er
+  geht im HTTP-Header raus, nicht im Antwortkörper), aber alles, was der
+  Energieversorger in seine Antwort schreibt, steht unverändert da. Vor dem
+  Teilen — Screenshot, Issue, Forum — also anschauen.
+- **Die Entity ist gross.** Die Nutzlast ist die gesamte Preiskurve aller
+  konfigurierten Tariftypen, je nach Tarif zehntausende Zeichen, und Home
+  Assistant schickt Attribute bei jeder Zustandsänderung an jeden offenen
+  Browser-Tab. Deshalb inaktiv als Vorgabe — und nach dem Fehlersuchen sinnvoll
+  wieder ausschalten.
+- **Nicht in der Historie.** Die drei Attribute sind von der Aufzeichnung
+  ausgenommen. Die Langzeitdatenbank nimmt Attribute über 16 KB ohnehin nicht
+  an und würde das bei jedem Abruf ins Log schreiben. Die Entity zeigt den
+  aktuellen Stand, nicht den von gestern.
+- Geschrieben wird sie nur, wenn ein Abruf wirklich etwas Neues gebracht hat —
+  nicht bei jedem Preiswechsel.
+
 ## Optionen
 
 In den Optionen werden zwei tägliche Abrufzeiten (lokale Zeit) definiert:
@@ -294,7 +375,9 @@ Zusätzlich gilt:
 - Schlägt ein Abruf fehl, wird mit 1, 2, 5, 10 und 30 Minuten Abstand erneut
   versucht, maximal sechsmal. Danach wird die nächste Abrufzeit abgewartet;
   jede Abrufzeit beginnt wieder mit einer frischen Wiederholungsreihe.
-- Ein normaler Tag ergibt damit zwei API-Abfragen pro Tariftyp.
+- Ein normaler Tag ergibt damit zwei API-Abfragen pro Tariftyp. Jeder Druck auf
+  [**Refresh now**](#manuell-abrufen) kommt dazu und setzt beide
+  Wiederholungsreihen zurück.
 - **Testjahr** (optional) schreibt das Abfragejahr um und ist nur zum Testen
   gedacht. In diesem Modus wird nicht nach den Preisen für morgen nachgefragt,
   es gelten nur die beiden Abrufzeiten.
@@ -310,9 +393,15 @@ Assistant ist nicht nötig.
 
 Hinweis: Wird für die Integration in Home Assistant «Abfrage aktiviert»
 ausgeschaltet, entfallen die Wiederholungen (Nachfragen und Fehler-Retry), die
-beiden festen Abrufzeiten bleiben aber aktiv.
+beiden festen Abrufzeiten bleiben aber aktiv. Der **Refresh now**-Button
+funktioniert ebenfalls weiter — er hängt nicht am Abrufintervall.
 
 ## Wenn etwas nicht stimmt
+
+Erster Griff ist der [**Refresh now**-Button](#manuell-abrufen): er sagt sofort,
+ob die API antwortet, und nennt bei einem Totalausfall den Grund je Tariftyp.
+Antwortet die API zwar, stimmen die Werte aber nicht, zeigt die Diagnose-Entity
+[**API response**](#rohe-api-antwort-ansehen), was wirklich angekommen ist.
 
 Schlägt ein Abruf für einen Tariftyp fehl, behält dieser Typ seine bereits
 geladenen Preise, statt auf `unavailable` zu gehen: ein für 15:00 publizierter
@@ -325,13 +414,19 @@ gespeicherten Preise vor, wird die Integration als nicht verfügbar gemeldet.
 Wird die Anfrage dauerhaft abgelehnt (HTTP 401/403/404 — z. B. falscher
 Messpunkt, falsches Token oder falscher Tarifname), werden die Wiederholungen
 ausgesetzt und der Grund im Log genannt; weiter zu probieren würde nichts
-bringen.
+bringen. Nach dem Korrigieren der Zugangsdaten bringt ein Druck auf **Refresh
+now** den Zeitplan sofort wieder in Gang.
+
+Bleibt ein Tag in `price_days` leer, ist das in der Regel kein Fehler: das
+Fenster reicht drei Tage voraus, ein Day-Ahead-Versorger publiziert aber nur
+bis morgen. `coverage` sagt für jeden Tag, wie viel davon tatsächlich Preise
+trägt.
 
 Unter **Einstellungen → Geräte & Dienste → Swisspower DynPreis → ⋮ →
 Diagnose herunterladen** gibt es den kompletten Zustand des Zeitplans (welcher
-Abruf wann geplant ist, wann jeder Tariftyp zuletzt erfolgreich war, ob die
-Preise für morgen als vollständig gelten). Token und Messpunktnummer sind darin
-entfernt.
+Abruf wann geplant ist, wie weit das Abruffenster reicht, wann jeder Tariftyp
+zuletzt erfolgreich war, ob die Preise für morgen als vollständig gelten).
+Token und Messpunktnummer sind darin entfernt.
 
 Für mehr Details im Log:
 

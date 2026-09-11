@@ -28,7 +28,10 @@ from custom_components.swisspower_dynpreis.const import (
     DOMAIN,
     METHOD_TARIFF_NAME,
 )
-from custom_components.swisspower_dynpreis.sensor import SwisspowerDynPreisStatSensor
+from custom_components.swisspower_dynpreis.sensor import (
+    SwisspowerDynPreisRawResponseSensor,
+    SwisspowerDynPreisStatSensor,
+)
 
 TZ_NAME = "Europe/Zurich"
 FETCH_TARGET = (
@@ -220,14 +223,17 @@ def make_entry(
 def all_entities_enabled() -> Iterator[None]:
     """Set up with the off-by-default entities switched on, as a user would.
 
-    Only the entities whose state is a number are enabled by default, so the
-    timestamp sensor and every on/off sensor are registered disabled and never
-    reach the state machine - a test asserting on their state would find
-    nothing. Patching the registry default is enough: Home Assistant reads it
-    once, while the entity is being added.
+    The timestamp sensor, every on/off sensor and the diagnostic raw response
+    sensor are registered disabled and never reach the state machine, so a test
+    asserting on their state would find nothing. Patching the registry default
+    is enough: Home Assistant reads it once, while the entity is being added.
     """
     with ExitStack() as stack:
-        for cls in (SwisspowerDynPreisStatSensor, SwisspowerDynPreisBinarySensor):
+        for cls in (
+            SwisspowerDynPreisStatSensor,
+            SwisspowerDynPreisBinarySensor,
+            SwisspowerDynPreisRawResponseSensor,
+        ):
             stack.enter_context(
                 patch.object(cls, "entity_registry_enabled_default", True)
             )
