@@ -83,7 +83,10 @@ async def test_all_entities_are_added_on_the_right_platform(
     ]
     assert not strays, f"on/off entities still in the sensor domain: {strays}"
 
-    assert len(entity_ids) == len(SENSOR_DESCRIPTIONS) + len(BINARY_DESCRIPTIONS) + 2
+    # The two current price sensors - plain and per component - plus the one
+    # refresh button, which belongs to the entry rather than to a tariff type.
+    assert "button.test_refresh_now" in entity_ids
+    assert len(entity_ids) == len(SENSOR_DESCRIPTIONS) + len(BINARY_DESCRIPTIONS) + 3
 
 
 async def test_binary_sensors_report_on_and_off(
@@ -144,6 +147,10 @@ async def test_a_fresh_install_starts_with_the_numeric_entities_only(
             for description in SENSOR_DESCRIPTIONS
             if description.enabled_default
         ),
+        # The numeric rule is about what the integration *measures*. The
+        # refresh button is a control, and a control nobody can find is not
+        # one, so it is on by default whatever its state looks like.
+        "button.test_refresh_now",
     }
 
     registry = er.async_get(hass)
