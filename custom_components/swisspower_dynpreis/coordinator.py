@@ -249,6 +249,20 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _handle_anchor(self, now: datetime) -> None:
         """Fetch at one of the configured daily times."""
+        await self.async_refresh_now()
+
+    async def async_refresh_now(self) -> None:
+        """Fetch immediately, from the top of both ladders.
+
+        Shared by the two daily anchors and by the manual refresh button, which
+        want exactly the same thing: ask now, and treat it as a fresh start
+        rather than as one more step of whatever schedule is currently running.
+
+        Does not raise. A total outage is reported through last_update_success
+        and last_exception, a per-type one through tariff_status, because the
+        coordinator serves the other types' cached prices rather than failing
+        the whole refresh. The button reads both back to tell the user.
+        """
         # Every anchor starts a fresh ladder. Without this the failure counter
         # would only ever reset on a success, so once the backoff had given up
         # it stayed given up: from the next day on there was one attempt per
@@ -259,7 +273,7 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._hunt_count = 0
         # async_refresh rather than async_request_refresh: the latter goes
         # through a debouncer, which would swallow an anchor that lands close
-        # to a retry.
+        # to a retry - and would make a deliberate button press do nothing.
         await self.async_refresh()
 
     def reference_now(self) -> datetime:
@@ -599,10 +613,35 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "reference_now": self.reference_now().isoformat(),
         }
 
+    @property
+    def tariff_types(self) -> list[str]:
+        """Return the tariff types this config entry is set up for."""
+        return list(self._tariff_types)
+
     def tariff_is_stale(self, tariff_type: str) -> bool:
         """Return whether this tariff type is being served from cache."""
         status = self.tariff_status.get(tariff_type)
         return bool(status and status.last_error)
+
+    def failed_tariff_types(self) -> dict[str, str]:
+        """Return, per tariff type that the last cycle could not refresh, why.
+
+        Every configured type is attempted in every cycle and lands in exactly
+        one of the two buckets, so this describes the most recent cycle rather
+        than accumulating history: a type that succeeds has its error cleared.
+
+        This, not last_update_success, is what says whether a fetch worked.
+        A cycle in which every single type failed still counts as a success for
+        the coordinator, because carrying the cached curves forward is better
+        than making every entity unavailable - so last_update_success goes False
+        only in the one case where there is no cache to fall back on either.
+        """
+        failures: dict[str, str] = {}
+        for tariff_type in self._tariff_types:
+            status = self.tariff_status.get(tariff_type)
+            if status is not None and status.last_error is not None:
+                failures[tariff_type] = status.last_error
+        return failures
 
     def last_success(self, tariff_type: str) -> datetime | None:
         """Return when this tariff type was last fetched successfully."""

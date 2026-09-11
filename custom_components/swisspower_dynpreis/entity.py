@@ -11,6 +11,21 @@ from .const import DOMAIN
 from .coordinator import SwisspowerDynPreisCoordinator
 
 
+def device_info_for(entry_id: str, name: str) -> DeviceInfo:
+    """Return the device every entity of one config entry belongs to.
+
+    A free function rather than a method on the base class below, because the
+    refresh button deliberately does not inherit from it - it has no tariff
+    type and no coordinator-derived state - but must still land on the same
+    device instead of creating a second one.
+    """
+    return DeviceInfo(
+        identifiers={(DOMAIN, entry_id)},
+        name=name,
+        manufacturer="Swisspower",
+    )
+
+
 class SwisspowerDynPreisEntity(CoordinatorEntity[SwisspowerDynPreisCoordinator]):
     """Base for every entity of one tariff type."""
 
@@ -31,11 +46,7 @@ class SwisspowerDynPreisEntity(CoordinatorEntity[SwisspowerDynPreisCoordinator])
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry_id)},
-            name=self._name,
-            manufacturer="Swisspower",
-        )
+        return device_info_for(self._entry_id, self._name)
 
     @property
     def available(self) -> bool:

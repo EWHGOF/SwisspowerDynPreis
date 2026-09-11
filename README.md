@@ -32,7 +32,8 @@ Feed_in = ist der Preis für die Rückvergütung von erzeugter energie.
 
 ## Sensoren
 
-Für jeden ausgewählten Tariftyp werden Entities in zwei Domains erstellt.
+Für jeden ausgewählten Tariftyp werden Entities in zwei Domains erstellt, dazu
+kommt ein Bedienelement für die gesamte Integration.
 
 Als `sensor.*`:
 
@@ -54,17 +55,27 @@ Liegen für den aktuellen Zeitpunkt keine Preise vor, sind die Binärsensoren
 `unknown` und nicht `off` — «unbekannt» und «nicht im günstigen Fenster» sind
 für Automationen zwei verschiedene Aussagen.
 
+Als `button.*`:
+
+- **Refresh now**: löst sofort einen Abruf aus — siehe
+  [Manuell abrufen](#manuell-abrufen).
+
 ### Was standardmässig aktiv ist
 
-Aktiv ist, was als Zustand eine **Zahl** führt: alle CHF/kWh-Sensoren, also
-**Current price** (auch je Komponente), **Average price today/tomorrow** sowie
-die **Lowest/Highest**-Fenster.
+Für die Mess- und Statistik-Entities (`sensor.*` und `binary_sensor.*`) gilt:
+aktiv ist, was als Zustand eine **Zahl** führt. Das sind alle
+CHF/kWh-Sensoren, also **Current price** (auch je Komponente), **Average price
+today/tomorrow** sowie die **Lowest/Highest**-Fenster.
 
 Inaktiv angelegt werden **Next change** (ein Zeitstempel) und **sämtliche
 Binärsensoren** (ein/aus) — je Tariftyp zehn Entities, bei allen fünf Typen also
 50, die die meisten Installationen nie brauchen. Sie fehlen aber nicht: sie
 stehen in der Entitätenverwaltung und lassen sich einzeln einschalten
 (Einstellungen → Geräte & Dienste → Entitäten → Entität → Aktiviert).
+
+Der **Refresh now**-Button ist davon ausgenommen und immer aktiv: er ist ein
+Bedienelement und kein Messwert, und ein Bedienelement, das man erst suchen und
+einschalten muss, ist keines.
 
 Home Assistant liest diese Vorgabe nur beim erstmaligen Anlegen einer Entität.
 Eine bestehende Installation behält also alles, was heute aktiv ist; die
@@ -219,6 +230,47 @@ zu `sensor.*_lowest_2h_window_tomorrow`, das ein Zwei-Stunden-Fenster meint:
 Vor der Publikation am Nachmittag ist `prices_tomorrow` leer und
 `tomorrow_valid` `false`. Eine Automation sollte auf `tomorrow_valid` prüfen,
 statt aus einer leeren Liste einen Preis von 0 zu schliessen.
+
+## Manuell abrufen
+
+Die Entity **`button.*_refresh_now`** löst sofort einen vollständigen Abruf aus:
+alle konfigurierten Tariftypen werden neu von der API geholt, normalisiert und
+sämtliche Sensoren werden neu berechnet. Ein Button genügt für alle Tariftypen —
+ein Abruf holt ohnehin immer alle in einem Durchgang.
+
+Nützlich ist das vor allem:
+
+- nach dem Korrigieren von Token, Messpunktnummer oder Tarifname — ein
+  abgelehnter Abruf wird sonst erst zur nächsten Abrufzeit erneut versucht;
+- wenn der Energieversorger die Preise für morgen zwischen zwei Abrufzeiten
+  publiziert oder eine korrigierte Kurve nachliefert;
+- zum Prüfen, ob die API überhaupt antwortet.
+
+Der Button ist **immer bedienbar**, auch wenn gerade kein Abruf gelingt — genau
+dann will man ihn ja drücken. Er hat keine Sperrzeit: jeder Druck geht wirklich
+an die API.
+
+**Rückmeldung:** Schlägt der Abruf für *alle* Tariftypen fehl, meldet der Button
+einen Fehler (rote Meldung in der Oberfläche, abfangbar in einer Automation) mit
+dem Grund je Tariftyp. Schlägt er nur für *einzelne* Typen fehl, gilt der Abruf
+als erfolgreich: die übrigen Typen wurden ja wirklich aktualisiert, und der
+betroffene Typ weist sich über `from_cache` und `last_successful_fetch` selbst
+als veraltet aus. Welche Typen auf dem Cache geblieben sind, steht im
+Protokoll.
+
+In einer Automation oder einem Skript:
+
+```yaml
+action: button.press
+target:
+  entity_id: button.swisspower_dynpreis_refresh_now
+```
+
+Der manuelle Abruf ersetzt den Zeitplan nicht, er setzt ihn zurück: die
+Fehler-Wiederholungen und das Nachfragen nach den Preisen für morgen beginnen
+nach einem Druck wieder von vorn, genau wie an einer der festen Abrufzeiten.
+Hat die Wiederholungsreihe nach sechs Fehlversuchen aufgegeben, ist der Button
+also der Weg zurück, ohne auf die nächste Abrufzeit zu warten.
 
 ## Optionen
 
