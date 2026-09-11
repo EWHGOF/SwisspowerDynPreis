@@ -36,6 +36,7 @@ from .helpers import (
 TODAY = date(2026, 9, 7)
 TOMORROW = date(2026, 9, 8)
 DAY_AFTER = date(2026, 9, 9)
+THIRD_DAY = date(2026, 9, 10)
 
 # The per-component current price sensor, which shares its curve with the plain
 # one today.
@@ -259,37 +260,44 @@ async def test_price_days_summarizes_every_day_in_the_window(
     assert days[1]["average"] == 0.30
     assert days[1]["coverage"] == 1.0
 
-    # The day after tomorrow is inside the window but unpublished: reported as
-    # empty rather than missing, so a card can say so.
-    assert days[2]["date"] == "2026-09-09"
-    assert days[2]["slots"] == 0
-    assert days[2]["average"] is None
-    assert days[2]["min"] is None
-    assert days[2]["coverage"] == 0.0
+    # The two days beyond tomorrow are inside the window but unpublished:
+    # reported as empty rather than missing, so a card can say so.
+    for index, day in ((2, "2026-09-09"), (3, "2026-09-10")):
+        assert days[index]["date"] == day
+        assert days[index]["slots"] == 0
+        assert days[index]["average"] is None
+        assert days[index]["min"] is None
+        assert days[index]["coverage"] == 0.0
 
 
-async def test_a_published_day_after_tomorrow_shows_up(
+async def test_a_supplier_publishing_three_days_ahead_shows_up(
     hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
 ) -> None:
-    """The window reaches three days, so a supplier who publishes that far is seen.
+    """The window reaches three days ahead, for a longer optimization horizon.
 
     Nothing beyond the window constant had to change for this: prices_upcoming
-    and price_days are both derived from it.
+    and price_days are both derived from it. A day-ahead supplier still leaves
+    the far days empty, which costs nothing - the window is a parameter of the
+    same request, and only tomorrow is ever chased for.
     """
     await set_time_zone(hass)
     api.publish(TODAY, hourly(TODAY))
     api.publish(TOMORROW, day_slots(TOMORROW, [0.30] * 24))
     api.publish(DAY_AFTER, day_slots(DAY_AFTER, [0.50] * 24))
+    api.publish(THIRD_DAY, day_slots(THIRD_DAY, [0.70] * 24))
 
     freezer.move_to(at(2026, 9, 7, 23, 30))
     await setup_integration(hass, make_entry())
 
     data = attrs(hass)
-    # The last slot of today, plus both full days ahead.
-    assert len(data["prices_upcoming"]) == 1 + 24 + 24
+    # The last slot of today, plus all three full days ahead.
+    assert len(data["prices_upcoming"]) == 1 + 24 + 24 + 24
     assert data["price_days"][2]["average"] == 0.50
     assert data["price_days"][2]["coverage"] == 1.0
-    # And it is not mistaken for tomorrow.
+    assert data["price_days"][3]["date"] == "2026-09-10"
+    assert data["price_days"][3]["average"] == 0.70
+    assert data["price_days"][3]["coverage"] == 1.0
+    # And neither is mistaken for tomorrow.
     assert all(item["value"] == 0.30 for item in data["prices_tomorrow"])
 
 

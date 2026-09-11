@@ -38,7 +38,15 @@ from .stats import (
 
 @dataclass(frozen=True)
 class SensorDescription:
-    """One derived numeric or timestamp sensor."""
+    """One derived numeric or timestamp sensor.
+
+    ``enabled_default`` follows one rule across both platforms: an entity whose
+    state is a number is on by default, everything else is off. A fresh install
+    therefore starts with the price entities only, and the rest is one click
+    away in the entity registry instead of five tariff types' worth of clutter.
+    Home Assistant reads this at first registration, so an existing install
+    keeps whatever it has enabled today.
+    """
 
     key: str
     name: str
@@ -56,7 +64,10 @@ _DERIVED_DESCRIPTIONS: tuple[SensorDescription, ...] = (
     SensorDescription(
         key="next_change",
         name="Next change",
-        enabled_default=True,
+        # The only entity here whose state is not a number: a timestamp. It is
+        # still provided, but off by default like the on/off ones, so a fresh
+        # install starts with the numeric price entities alone.
+        enabled_default=False,
         unit=None,
         value_fn=lambda slots, now, tariff, component: next_change(
             slots, now, tariff, component

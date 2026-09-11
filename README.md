@@ -54,6 +54,22 @@ Liegen für den aktuellen Zeitpunkt keine Preise vor, sind die Binärsensoren
 `unknown` und nicht `off` — «unbekannt» und «nicht im günstigen Fenster» sind
 für Automationen zwei verschiedene Aussagen.
 
+### Was standardmässig aktiv ist
+
+Aktiv ist, was als Zustand eine **Zahl** führt: alle CHF/kWh-Sensoren, also
+**Current price** (auch je Komponente), **Average price today/tomorrow** sowie
+die **Lowest/Highest**-Fenster.
+
+Inaktiv angelegt werden **Next change** (ein Zeitstempel) und **sämtliche
+Binärsensoren** (ein/aus) — je Tariftyp zehn Entities, bei allen fünf Typen also
+50, die die meisten Installationen nie brauchen. Sie fehlen aber nicht: sie
+stehen in der Entitätenverwaltung und lassen sich einzeln einschalten
+(Einstellungen → Geräte & Dienste → Entitäten → Entität → Aktiviert).
+
+Home Assistant liest diese Vorgabe nur beim erstmaligen Anlegen einer Entität.
+Eine bestehende Installation behält also alles, was heute aktiv ist; die
+Umstellung wirkt auf neue Installationen und auf neu hinzukommende Tariftypen.
+
 Der **Current price**-Sensor führt zusätzlich zwei Attribute zur Datenaktualität:
 
 - `last_successful_fetch`: wann dieser Tariftyp zuletzt erfolgreich abgerufen wurde.
@@ -84,11 +100,19 @@ Automationen, Skripte und Dashboards, die eine dieser Entities über
 ## Zukünftige Tarife anzeigen
 
 Abgerufen wird immer das Fenster von heute 00:00 Uhr bis zum Beginn des Tages
-in drei Tagen, also **heute, morgen und übermorgen** (lokale Zeit). Was davon
-tatsächlich Daten hat, entscheidet der Energieversorger: morgen wird typisch am
-Nachmittag publiziert, übermorgen bei einem Day-Ahead-Tarif gar nie. Deshalb
-wird nur nach den Preisen für **morgen** nachgefragt — für übermorgen zu
-pollen würde jeden Tag Anfragen für Daten erzeugen, die es nicht gibt.
+in vier Tagen, also **heute plus die drei folgenden Tage** (lokale Zeit) — so
+weit reicht der Horizont, den eine längerfristige Optimierung auswerten kann.
+
+Was davon tatsächlich Daten hat, entscheidet der Energieversorger: morgen wird
+typisch am Nachmittag publiziert, alles danach bei einem Day-Ahead-Tarif gar
+nie. Die leeren Tage kosten nichts — das Fenster ist ein Parameter derselben
+Abfrage, es gibt keine zusätzlichen Requests. Nachgefragt wird weiterhin nur
+nach den Preisen für **morgen**; für die weiteren Tage zu pollen würde jeden
+Tag Anfragen für Daten erzeugen, die es nicht gibt.
+
+Ein Tag ohne Daten erscheint in `price_days` mit `slots: 0` und `coverage: 0.0`
+und in `prices_upcoming` gar nicht — ein Dashboard kann ihn also als «noch nicht
+publiziert» ausweisen statt als 0.00.
 
 Der **Current price**-Sensor trägt die Kurve in chart-fertigen Attributen. In
 allen ist der Wert für den Tariftyp **und die Komponente dieser Entity** bereits
@@ -123,7 +147,7 @@ Entity-ID an die eigene anpassen:
 
 ```yaml
 type: custom:apexcharts-card
-graph_span: 2d
+graph_span: 4d
 span:
   start: minute
 now:

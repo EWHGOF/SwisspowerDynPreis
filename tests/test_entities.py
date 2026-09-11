@@ -15,6 +15,7 @@ from custom_components.swisspower_dynpreis.sensor import SENSOR_DESCRIPTIONS
 
 from .helpers import (
     FakeApi,
+    all_entities_enabled,
     at,
     day_slots,
     make_entry,
@@ -42,13 +43,17 @@ async def test_all_entities_are_added_on_the_right_platform(
     description via ``self.entity_description``, which made every one of them
     fail to be added; and the on/off ones used to be added through the sensor
     platform, which put them in the sensor domain with a state of "on".
+
+    Set up with everything enabled: which entities a fresh install starts with
+    is a separate question, pinned by the test below.
     """
     await set_time_zone(hass)
     today = date(2026, 9, 7)
     api.publish(today, day_slots(today, [0.20] * 24))
 
     freezer.move_to(at(2026, 9, 7, 6))
-    await setup_integration(hass, make_entry())
+    with all_entities_enabled():
+        await setup_integration(hass, make_entry())
 
     entity_ids = set(hass.states.async_entity_ids())
 
@@ -90,11 +95,68 @@ async def test_binary_sensors_report_on_and_off(
     api.publish(today, day_slots(today, [0.20] * 24))
 
     freezer.move_to(at(2026, 9, 7, 6))
-    await setup_integration(hass, make_entry())
+    with all_entities_enabled():
+        await setup_integration(hass, make_entry())
 
     state = hass.states.get("binary_sensor.test_electricity_cheapest_50_hours_today")
     assert state is not None
     assert state.state == "on"
+
+
+def test_the_enabled_default_rule_is_a_numeric_state() -> None:
+    """Enabled by default means "the state is a number", and nothing else.
+
+    Asserted on the descriptions rather than on a list of keys so a new entity
+    has to pick a side: a CHF/kWh sensor is on, anything else - the timestamp
+    sensor, every on/off sensor - is off.
+    """
+    for description in SENSOR_DESCRIPTIONS:
+        numeric = description.unit == "CHF/kWh"
+        assert description.enabled_default is numeric, description.key
+
+    for description in BINARY_DESCRIPTIONS:
+        assert description.enabled_default is False, description.key
+
+
+async def test_a_fresh_install_starts_with_the_numeric_entities_only(
+    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
+) -> None:
+    """Five tariff types' worth of on/off entities is clutter nobody asked for.
+
+    The rest is registered but disabled, not missing: it stays one click away in
+    the entity registry. Home Assistant reads the default at first registration
+    only, so an existing install keeps whatever it has enabled today.
+    """
+    await set_time_zone(hass)
+    today = date(2026, 9, 7)
+    api.publish(today, day_slots(today, [0.20] * 24))
+
+    freezer.move_to(at(2026, 9, 7, 6))
+    entry = make_entry()
+    await setup_integration(hass, entry)
+
+    assert set(hass.states.async_entity_ids()) == {
+        # The current price, plain and per component: both are numbers.
+        "sensor.test_electricity_current_price",
+        "sensor.test_electricity_energy_current_price",
+        *(
+            _entity_id("sensor", description.name)
+            for description in SENSOR_DESCRIPTIONS
+            if description.enabled_default
+        ),
+    }
+
+    registry = er.async_get(hass)
+    for domain, descriptions in (
+        ("sensor", SENSOR_DESCRIPTIONS),
+        ("binary_sensor", BINARY_DESCRIPTIONS),
+    ):
+        for description in descriptions:
+            if description.enabled_default:
+                continue
+            item = registry.async_get(_entity_id(domain, description.name))
+            assert item is not None, description.key
+            assert item.disabled_by is er.RegistryEntryDisabler.INTEGRATION
 
 
 async def test_legacy_sensor_domain_rows_are_removed(
