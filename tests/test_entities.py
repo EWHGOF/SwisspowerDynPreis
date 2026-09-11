@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -83,10 +84,11 @@ async def test_all_entities_are_added_on_the_right_platform(
     ]
     assert not strays, f"on/off entities still in the sensor domain: {strays}"
 
-    # The two current price sensors - plain and per component - plus the one
-    # refresh button, which belongs to the entry rather than to a tariff type.
+    # The two current price sensors - plain and per component - plus the two
+    # entities that belong to the entry rather than to a tariff type.
     assert "button.test_refresh_now" in entity_ids
-    assert len(entity_ids) == len(SENSOR_DESCRIPTIONS) + len(BINARY_DESCRIPTIONS) + 3
+    assert "sensor.test_api_response" in entity_ids
+    assert len(entity_ids) == len(SENSOR_DESCRIPTIONS) + len(BINARY_DESCRIPTIONS) + 4
 
 
 async def test_binary_sensors_report_on_and_off(
@@ -107,11 +109,15 @@ async def test_binary_sensors_report_on_and_off(
 
 
 def test_the_enabled_default_rule_is_a_numeric_state() -> None:
-    """Enabled by default means "the state is a number", and nothing else.
+    """For the measurement entities, enabled by default means a numeric state.
 
     Asserted on the descriptions rather than on a list of keys so a new entity
     has to pick a side: a CHF/kWh sensor is on, anything else - the timestamp
     sensor, every on/off sensor - is off.
+
+    Scoped to these two lists on purpose. The refresh button is a control and
+    the raw response sensor is diagnostic; neither is a measurement, and both
+    have their own rule and their own test.
     """
     for description in SENSOR_DESCRIPTIONS:
         numeric = description.unit == "CHF/kWh"
@@ -151,6 +157,9 @@ async def test_a_fresh_install_starts_with_the_numeric_entities_only(
         # refresh button is a control, and a control nobody can find is not
         # one, so it is on by default whatever its state looks like.
         "button.test_refresh_now",
+        # sensor.test_api_response is deliberately absent: its state is a
+        # number too, but it is diagnostic and carries the whole raw payload,
+        # so it is off until someone needs it.
     }
 
     registry = er.async_get(hass)
@@ -214,16 +223,36 @@ async def test_legacy_sensor_domain_rows_are_removed(
     )
 
 
+@pytest.mark.parametrize("enable_everything", [False, True])
 async def test_no_errors_logged_while_adding_entities(
-    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory, caplog
+    hass: HomeAssistant,
+    api: FakeApi,
+    freezer: FrozenDateTimeFactory,
+    caplog,
+    enable_everything: bool,
 ) -> None:
-    """Adding either platform must not log an error."""
+    """Adding any platform must not log an error.
+
+    Run both ways on purpose. With the defaults, most entities are registered
+    disabled and never added at all, so a broken declaration on one of them -
+    a device class its unit does not fit, say - would never be validated and
+    this test would pass while the entity was unusable for anyone who switched
+    it on.
+    """
     await set_time_zone(hass)
     today = date(2026, 9, 7)
     api.publish(today, day_slots(today, [0.20] * 24))
 
     freezer.move_to(at(2026, 9, 7, 6))
-    await setup_integration(hass, make_entry())
+    if enable_everything:
+        with all_entities_enabled():
+            await setup_integration(hass, make_entry())
+    else:
+        await setup_integration(hass, make_entry())
 
     assert "Error adding entity" not in caplog.text
     assert "AttributeError" not in caplog.text
+    # Home Assistant reports a device class that does not match its unit, or a
+    # state it cannot parse, as a plain ERROR record rather than an exception.
+    errors = [record for record in caplog.records if record.levelname == "ERROR"]
+    assert not errors, [record.getMessage() for record in errors]

@@ -22,7 +22,7 @@
           "tariff_types": "Tariftypen"
         },
         "data_description": {
-          "tariff_types": "Je ausgewähltem Typ entsteht ein eigener Satz Entities, und jeder Typ ist eine eigene API-Abfrage pro Abruf. Standardmässig aktiv sind nur Entities mit einem Zahlenwert; die Zeitstempel- und Ein/Aus-Entities werden inaktiv angelegt und lassen sich einzeln einschalten."
+          "tariff_types": "Je ausgewähltem Typ entsteht ein eigener Satz Entities, und jeder Typ ist eine eigene API-Abfrage pro Abruf. Standardmässig aktiv sind nur die Preis-Entities; die Zeitstempel-, Ein/Aus- und Diagnose-Entities werden inaktiv angelegt und lassen sich einzeln einschalten."
         }
       },
       "tariff_name": {
@@ -33,7 +33,7 @@
           "tariff_types": "Tariftypen"
         },
         "data_description": {
-          "tariff_types": "Je ausgewähltem Typ entsteht ein eigener Satz Entities, und jeder Typ ist eine eigene API-Abfrage pro Abruf. Standardmässig aktiv sind nur Entities mit einem Zahlenwert; die Zeitstempel- und Ein/Aus-Entities werden inaktiv angelegt und lassen sich einzeln einschalten."
+          "tariff_types": "Je ausgewähltem Typ entsteht ein eigener Satz Entities, und jeder Typ ist eine eigene API-Abfrage pro Abruf. Standardmässig aktiv sind nur die Preis-Entities; die Zeitstempel-, Ein/Aus- und Diagnose-Entities werden inaktiv angelegt und lassen sich einzeln einschalten."
         }
       }
     },

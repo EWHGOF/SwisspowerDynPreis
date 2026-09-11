@@ -22,7 +22,7 @@
           "tariff_types": "Tariff types"
         },
         "data_description": {
-          "tariff_types": "One set of entities per selected type, and one API request per type per fetch. Only entities whose state is a number are enabled by default; the timestamp and on/off ones are created disabled and can be switched on individually."
+          "tariff_types": "One set of entities per selected type, and one API request per type per fetch. Only the price entities are enabled by default; the timestamp, on/off and diagnostic ones are created disabled and can be switched on individually."
         }
       },
       "tariff_name": {
@@ -33,7 +33,7 @@
           "tariff_types": "Tariff types"
         },
         "data_description": {
-          "tariff_types": "One set of entities per selected type, and one API request per type per fetch. Only entities whose state is a number are enabled by default; the timestamp and on/off ones are created disabled and can be switched on individually."
+          "tariff_types": "One set of entities per selected type, and one API request per type per fetch. Only the price entities are enabled by default; the timestamp, on/off and diagnostic ones are created disabled and can be switched on individually."
         }
       }
     },

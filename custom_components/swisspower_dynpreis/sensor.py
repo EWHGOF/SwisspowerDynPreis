@@ -9,8 +9,11 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.const import EntityCategory, UnitOfInformation
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -21,7 +24,7 @@ from .const import (
     WINDOW_DAYS_FORWARD,
 )
 from .coordinator import SwisspowerDynPreisCoordinator
-from .entity import SwisspowerDynPreisEntity
+from .entity import SwisspowerDynPreisEntity, device_info_for
 from .pricing import extract_slot_value, find_current_slot, normalize_price_slots
 from .stats import (
     average_for_day,
@@ -147,7 +150,10 @@ async def async_setup_entry(
     name = entry.title or DEFAULT_NAME
 
     tariff_types = entry.data[CONF_TARIFF_TYPES]
-    entities: list[SwisspowerDynPreisEntity] = []
+    # SensorEntity rather than the integration's own base: the raw response
+    # sensor below belongs to the entry, not to a tariff type, so it does not
+    # inherit from it.
+    entities: list[SensorEntity] = []
     component_map = _collect_components(coordinator.data, tariff_types)
     for tariff_type in tariff_types:
         entities.append(
@@ -178,6 +184,16 @@ async def async_setup_entry(
             )
             for description in SENSOR_DESCRIPTIONS
         )
+
+    # One for the whole entry, not one per tariff type: it carries every type's
+    # answer in a single attribute, which is what makes it worth opening.
+    entities.append(
+        SwisspowerDynPreisRawResponseSensor(
+            coordinator=coordinator,
+            entry_id=entry.entry_id,
+            name=name,
+        )
+    )
 
     async_add_entities(entities)
 
@@ -346,6 +362,117 @@ class SwisspowerDynPreisStatSensor(SwisspowerDynPreisEntity, SensorEntity):
         return self._description.extra_fn(
             self.price_slots, dt_util.now(), self._tariff_type, None
         )
+
+
+class SwisspowerDynPreisRawResponseSensor(
+    CoordinatorEntity[SwisspowerDynPreisCoordinator], SensorEntity
+):
+    """The API's answers as received, before this integration touches them.
+
+    Every other entity shows a value the integration computed. When one of them
+    looks wrong the next question is always the same - did the API send that, or
+    did we make it up - and until now the only way to answer it was to turn on
+    debug logging and wait for the next fetch. This holds the last answer per
+    tariff type in an attribute, so the question is answerable now.
+
+    Off by default, and that is not caution about clutter: the payload is the
+    whole price curve for every configured type, tens of kilobytes of it, and
+    Home Assistant pushes an entity's attributes to every open browser tab on
+    every state write. Nobody should pay that who is not currently debugging.
+
+    The state is the payload's size rather than the payload: a state is capped
+    at 255 characters, and a number here is the useful summary anyway - an API
+    that answered with nothing is visible at a glance, and the size can be
+    graphed.
+
+    "Raw" means the decoded body before the coordinator normalizes it. The
+    client does two things first, and both preserve rather than reshape: a body
+    that is not JSON arrives as {"raw": "<text>"}, and a JSON document whose top
+    level is not an object arrives as {"data": ...}. Nothing is redacted, so the
+    payload is whatever the API chose to send back - treat it as customer data.
+    """
+
+    # Same reason as on the current price sensor, only more so: this is the
+    # largest attribute the integration has, and writing it to the long-term
+    # database on every fetch would be the single most expensive thing it does.
+    # The recorder refuses attributes over 16 KB anyway and would log a warning
+    # about it every single time.
+    _unrecorded_attributes = frozenset({"responses", "captured", "bytes"})
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+    _attr_device_class = SensorDeviceClass.DATA_SIZE
+    _attr_native_unit_of_measurement = UnitOfInformation.BYTES
+    _attr_icon = "mdi:code-json"
+
+    def __init__(
+        self,
+        *,
+        coordinator: SwisspowerDynPreisCoordinator,
+        entry_id: str,
+        name: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._entry_id = entry_id
+        self._name = name
+        self._written_capture: dict[str, datetime] = {}
+
+    @property
+    def name(self) -> str:
+        return f"{self._name} API response"
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._entry_id}_api_response"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return device_info_for(self._entry_id, self._name)
+
+    @property
+    def available(self) -> bool:
+        """Always available.
+
+        A diagnostic entity that disappears when the integration is unhappy is
+        useless at the one moment it is meant to help, and the captured payload
+        stays readable whether or not the newest fetch worked.
+        """
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        """Record what the entity's first state write already showed.
+
+        That write happens through the platform, not through the coordinator
+        update path below, so without this the next render tick would find an
+        empty _written_capture and repeat it once for nothing.
+        """
+        await super().async_added_to_hass()
+        self._written_capture = dict(self.coordinator.raw_captured)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Write state only when a fetch actually brought something new.
+
+        The coordinator notifies its listeners at every price boundary too, so
+        the base class would rewrite this entity - the largest attribute payload
+        in the integration - up to 96 times a day for a value that changes twice.
+
+        The capture timestamps are the cheap stand-in for the payload: they are
+        set by the same line that stores it, so they move exactly when it does.
+        """
+        captured = dict(self.coordinator.raw_captured)
+        if captured == self._written_capture:
+            return
+        self._written_capture = captured
+        super()._handle_coordinator_update()
+
+    @property
+    def native_value(self) -> int | None:
+        return self.coordinator.raw_total_bytes()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return self.coordinator.raw_response_state()
 
 
 def _collect_components(
