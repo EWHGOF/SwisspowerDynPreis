@@ -605,6 +605,9 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "update_interval": (
                 self.update_interval.total_seconds() if self.update_interval else None
             ),
+            # How far ahead every request reaches, so a diagnostics download
+            # explains an empty far day rather than leaving it a mystery.
+            "window_days_forward": WINDOW_DAYS_FORWARD,
             "consecutive_failures": self._fail_count,
             "hunting_for": self._hunt_kind,
             "hunt_attempts_today": self._hunt_count,

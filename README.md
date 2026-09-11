@@ -23,14 +23,21 @@ Ein Wizard führt durch die Konfiguration:
 - **Messpunktnummer** (Metering Code) und **Authentifizierungstoken** für den produktiven API-Zugriff oder
 - **Tarifname** (z. B. D1) ohne Token. 
 
-Zusätzlich können die gewünschten Tariftypen ausgewählt werden (electricity, grid, dso, integrated, feed_in).
+Zusätzlich können die gewünschten Tariftypen ausgewählt werden:
 
-Electricity = Der Preis für die Energie
-Grid = Netznutzung
-Integrated = die Summe von allen Bestandteilen. Inklusive abgaben.
-Feed_in = ist der Preis für die Rückvergütung von erzeugter energie.
+| Tariftyp | Bedeutung |
+| --- | --- |
+| `electricity` | Der Preis für die Energie |
+| `grid` | Netznutzung |
+| `dso` | noch nicht beschrieben — siehe [API-Dokumentation](https://esit.code-fabrik.ch/doc_scalar) |
+| `integrated` | Die Summe aller Bestandteile, inklusive Abgaben |
+| `feed_in` | Der Preis für die Rückvergütung von erzeugter Energie |
 
-## Sensoren
+Je ausgewähltem Typ entsteht ein eigener Satz Entities, und jeder Typ ist eine
+eigene API-Abfrage pro Abruf. Es lohnt sich also, nur die Typen zu wählen, die
+der Energieversorger auch liefert.
+
+## Entities
 
 Für jeden ausgewählten Tariftyp werden Entities in zwei Domains erstellt, dazu
 kommt ein Bedienelement für die gesamte Integration.
@@ -101,12 +108,26 @@ Fenster-Durchschnitt ist nach Dauer gewichtet.
 
 ### Achtung beim Update
 
+Was sich beim Aktualisieren einer bestehenden Installation ändert — und was
+nicht:
+
+| Änderung | Auswirkung auf eine bestehende Installation |
+| --- | --- |
+| Binärsensoren in eigener Domain | **Umstellung nötig**, siehe unten |
+| Abruffenster reicht drei Tage voraus | keine; die Attribute `price_days` und `prices_upcoming` werden einfach länger |
+| Nur Entities mit Zahlenwert standardmässig aktiv | keine; bestehende Entities behalten ihren Zustand |
+| Neuer Button `Refresh now` | kommt beim ersten Start dazu, aktiv |
+
 Die Binärsensoren lagen früher fälschlich in der `sensor`-Domain (mit dem
 Zustand `on`/`off`). Beim ersten Start nach dem Update werden die alten
 `sensor.*`-Einträge entfernt und als `binary_sensor.*` neu angelegt.
 Automationen, Skripte und Dashboards, die eine dieser Entities über
 `sensor.…` ansprechen, müssen auf `binary_sensor.…` umgestellt werden. Die
 übrigen Sensoren behalten ihre Entity-ID.
+
+Eine bestehende Installation, die die Zeitstempel- und Ein/Aus-Entities
+loswerden will, muss sie von Hand deaktivieren oder die Integration neu
+einrichten — Home Assistant wendet die neue Vorgabe nicht rückwirkend an.
 
 ## Zukünftige Tarife anzeigen
 
@@ -294,7 +315,9 @@ Zusätzlich gilt:
 - Schlägt ein Abruf fehl, wird mit 1, 2, 5, 10 und 30 Minuten Abstand erneut
   versucht, maximal sechsmal. Danach wird die nächste Abrufzeit abgewartet;
   jede Abrufzeit beginnt wieder mit einer frischen Wiederholungsreihe.
-- Ein normaler Tag ergibt damit zwei API-Abfragen pro Tariftyp.
+- Ein normaler Tag ergibt damit zwei API-Abfragen pro Tariftyp. Jeder Druck auf
+  [**Refresh now**](#manuell-abrufen) kommt dazu und setzt beide
+  Wiederholungsreihen zurück.
 - **Testjahr** (optional) schreibt das Abfragejahr um und ist nur zum Testen
   gedacht. In diesem Modus wird nicht nach den Preisen für morgen nachgefragt,
   es gelten nur die beiden Abrufzeiten.
@@ -310,9 +333,13 @@ Assistant ist nicht nötig.
 
 Hinweis: Wird für die Integration in Home Assistant «Abfrage aktiviert»
 ausgeschaltet, entfallen die Wiederholungen (Nachfragen und Fehler-Retry), die
-beiden festen Abrufzeiten bleiben aber aktiv.
+beiden festen Abrufzeiten bleiben aber aktiv. Der **Refresh now**-Button
+funktioniert ebenfalls weiter — er hängt nicht am Abrufintervall.
 
 ## Wenn etwas nicht stimmt
+
+Erster Griff ist der [**Refresh now**-Button](#manuell-abrufen): er sagt sofort,
+ob die API antwortet, und nennt bei einem Totalausfall den Grund je Tariftyp.
 
 Schlägt ein Abruf für einen Tariftyp fehl, behält dieser Typ seine bereits
 geladenen Preise, statt auf `unavailable` zu gehen: ein für 15:00 publizierter
@@ -325,13 +352,19 @@ gespeicherten Preise vor, wird die Integration als nicht verfügbar gemeldet.
 Wird die Anfrage dauerhaft abgelehnt (HTTP 401/403/404 — z. B. falscher
 Messpunkt, falsches Token oder falscher Tarifname), werden die Wiederholungen
 ausgesetzt und der Grund im Log genannt; weiter zu probieren würde nichts
-bringen.
+bringen. Nach dem Korrigieren der Zugangsdaten bringt ein Druck auf **Refresh
+now** den Zeitplan sofort wieder in Gang.
+
+Bleibt ein Tag in `price_days` leer, ist das in der Regel kein Fehler: das
+Fenster reicht drei Tage voraus, ein Day-Ahead-Versorger publiziert aber nur
+bis morgen. `coverage` sagt für jeden Tag, wie viel davon tatsächlich Preise
+trägt.
 
 Unter **Einstellungen → Geräte & Dienste → Swisspower DynPreis → ⋮ →
 Diagnose herunterladen** gibt es den kompletten Zustand des Zeitplans (welcher
-Abruf wann geplant ist, wann jeder Tariftyp zuletzt erfolgreich war, ob die
-Preise für morgen als vollständig gelten). Token und Messpunktnummer sind darin
-entfernt.
+Abruf wann geplant ist, wie weit das Abruffenster reicht, wann jeder Tariftyp
+zuletzt erfolgreich war, ob die Preise für morgen als vollständig gelten).
+Token und Messpunktnummer sind darin entfernt.
 
 Für mehr Details im Log:
 

@@ -106,6 +106,46 @@ def test_translations_cover_every_string() -> None:
         )
 
 
+def test_the_fetch_window_is_documented_where_users_read_it() -> None:
+    """Widen or narrow the window and the prose has to move with it.
+
+    The reach is a promise made in three places a user actually looks at - the
+    README, and the options screen in both languages - and none of them is
+    derived from the constant, so nothing else would notice them going stale.
+    The sentences are prose in two languages rather than a template, so they
+    are spelled out per value instead of generated.
+    """
+    from custom_components.swisspower_dynpreis.const import WINDOW_DAYS_FORWARD
+
+    phrasing = {
+        4: {
+            REPO / "README.md": "heute plus die drei folgenden Tage",
+            INTEGRATION / "strings.json": "today and the next three days",
+            INTEGRATION / "translations" / "en.json": "today and the next three days",
+            INTEGRATION / "translations" / "de.json": "heute und die drei folgenden Tage",
+        },
+    }
+
+    expected = phrasing.get(WINDOW_DAYS_FORWARD)
+    assert expected is not None, (
+        f"WINDOW_DAYS_FORWARD is now {WINDOW_DAYS_FORWARD}; update the README and "
+        "the options strings, then add the new wording here"
+    )
+    for path, phrase in expected.items():
+        assert phrase in path.read_text(), f"{path.name} no longer says {phrase!r}"
+
+
+def test_the_button_platform_is_loaded() -> None:
+    """A platform module nobody forwards to creates no entities at all.
+
+    Cheap guard on the one line that makes the refresh button exist: it lives in
+    __init__.py, far from button.py, and forgetting it fails silently.
+    """
+    init = (INTEGRATION / "__init__.py").read_text()
+    assert (INTEGRATION / "button.py").is_file()
+    assert "Platform.BUTTON" in init
+
+
 def test_config_flow_errors_are_translated() -> None:
     """Every error code the config flow can set needs a string."""
     flow = (INTEGRATION / "config_flow.py").read_text()

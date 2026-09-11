@@ -19,6 +19,7 @@ from custom_components.swisspower_dynpreis.const import (
     CONF_TOKEN,
     DOMAIN,
     METHOD_METERING_CODE,
+    WINDOW_DAYS_FORWARD,
 )
 
 from .helpers import FakeApi, at, day_slots, set_time_zone, setup_integration
@@ -180,6 +181,9 @@ async def test_diagnostics_are_useful_and_redacted(
     # And it actually answers the questions an issue report raises.
     assert result["schedule"]["covers_now"] is True
     assert result["schedule"]["tomorrow_complete"] is False
+    # Including "why is the last day empty": the window reaches further than a
+    # day-ahead supplier publishes, and the diagnostics has to say how far.
+    assert result["schedule"]["window_days_forward"] == WINDOW_DAYS_FORWARD
     assert result["tariff_types"]["electricity"]["slot_count"] == 24
     assert result["tariff_types"]["electricity"]["serving_from_cache"] is False
     assert result["tariff_types"]["electricity"]["last_successful_fetch"] is not None
