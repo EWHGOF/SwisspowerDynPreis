@@ -25,7 +25,13 @@ from .stats import in_window, percentile_binary
 
 @dataclass(frozen=True)
 class BinaryDescription:
-    """One derived on/off sensor."""
+    """One derived on/off sensor.
+
+    ``enabled_default`` is False for every entity here, and stays a field rather
+    than a constant so the rule is stated where each entity is declared. It is
+    the same rule the sensor platform applies: numbers on, everything else off.
+    An on/off state is never a number, so none of these is on by default.
+    """
 
     key: str
     name: str
@@ -57,7 +63,7 @@ def _percentile_description(
     return BinaryDescription(
         key=key,
         name=name,
-        enabled_default=True,
+        enabled_default=False,
         value_fn=lambda slots, now, tariff, component: percentile_binary(
             slots, now, percentile, tariff, component, highest
         ),
@@ -70,7 +76,7 @@ def _window_description(
     return BinaryDescription(
         key=key,
         name=name,
-        enabled_default=True,
+        enabled_default=False,
         value_fn=lambda slots, now, tariff, component: in_window(
             slots, now, 0, hours, tariff, component, extreme
         ),

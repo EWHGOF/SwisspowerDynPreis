@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from datetime import date, datetime, timedelta
 from typing import Any
+from unittest.mock import patch
 
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import CONF_NAME
@@ -14,6 +17,9 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
+from custom_components.swisspower_dynpreis.binary_sensor import (
+    SwisspowerDynPreisBinarySensor,
+)
 from custom_components.swisspower_dynpreis.const import (
     CONF_METHOD,
     CONF_TARIFF_NAME,
@@ -22,6 +28,7 @@ from custom_components.swisspower_dynpreis.const import (
     DOMAIN,
     METHOD_TARIFF_NAME,
 )
+from custom_components.swisspower_dynpreis.sensor import SwisspowerDynPreisStatSensor
 
 TZ_NAME = "Europe/Zurich"
 FETCH_TARGET = (
@@ -207,6 +214,24 @@ def make_entry(
         },
         options=options,
     )
+
+
+@contextmanager
+def all_entities_enabled() -> Iterator[None]:
+    """Set up with the off-by-default entities switched on, as a user would.
+
+    Only the entities whose state is a number are enabled by default, so the
+    timestamp sensor and every on/off sensor are registered disabled and never
+    reach the state machine - a test asserting on their state would find
+    nothing. Patching the registry default is enough: Home Assistant reads it
+    once, while the entity is being added.
+    """
+    with ExitStack() as stack:
+        for cls in (SwisspowerDynPreisStatSensor, SwisspowerDynPreisBinarySensor):
+            stack.enter_context(
+                patch.object(cls, "entity_registry_enabled_default", True)
+            )
+        yield
 
 
 async def setup_integration(hass: HomeAssistant, entry: MockConfigEntry) -> None:

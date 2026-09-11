@@ -58,6 +58,10 @@ async def test_the_request_window_spans_the_configured_days(
     call = api.calls[0]
     assert call["start"] == at(2026, 9, 7)
     assert call["end"] == at(2026, 9, 7) + timedelta(days=WINDOW_DAYS_FORWARD)
+    # Spelled out as well as derived from the constant: the assertion above
+    # holds for any value, and the point of this one is the reach itself -
+    # today plus the three days ahead a longer optimization horizon needs.
+    assert call["end"] == at(2026, 9, 11)
     # Local midnight, not the moment of the request: a window that started at
     # 06:00 would lose the prices already elapsed today.
     assert dt_util.as_local(call["start"]).hour == 0

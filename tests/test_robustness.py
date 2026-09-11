@@ -17,6 +17,7 @@ from .helpers import (
     CURRENT_PRICE,
     FakeApi,
     advance,
+    all_entities_enabled,
     at,
     day_slots,
     make_entry,
@@ -137,7 +138,8 @@ async def test_binary_sensor_is_unknown_without_data(
     api.publish(today, day_slots(today, [0.20] * 12))
 
     freezer.move_to(at(2026, 9, 7, 13, 0))
-    await setup_integration(hass, make_entry(update_time="06:00"))
+    with all_entities_enabled():
+        await setup_integration(hass, make_entry(update_time="06:00"))
 
     state = hass.states.get("binary_sensor.test_electricity_cheapest_25_hours_today")
     assert state is not None

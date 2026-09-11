@@ -25,14 +25,20 @@ TIMEOUT_SECONDS = 20
 
 # How many days ahead the request window reaches. The window runs from the
 # start of the local day to the start of the local day this many days later,
-# so day 0 is today, day 1 tomorrow, and day 2 the day after.
+# so day 0 is today and days 1 to 3 are the three days ahead.
 #
 # Asking for more days than the supplier has published is not a new thing this
 # value does: the window has always reached into tomorrow, and every morning
 # before the afternoon publication it comes back with today only. A day-ahead
-# supplier will simply leave the last day empty, and price_days reports its
-# coverage as 0. It also sets how many days price_days summarizes.
-WINDOW_DAYS_FORWARD = 3
+# supplier will simply leave the trailing days empty, and price_days reports
+# their coverage as 0. It also sets how many days price_days summarizes.
+#
+# Three days ahead rather than two so a supplier that publishes further out can
+# feed a longer optimization horizon. It costs nothing extra in requests: the
+# window is a parameter of the same call, and the hunt ladder still chases only
+# tomorrow (see tomorrow_complete), because that is the last day a day-ahead
+# supplier will ever publish.
+WINDOW_DAYS_FORWARD = 4
 
 # Escalating wait after a failed fetch, in minutes. The chain gives up after
 # BACKOFF_MAX_TRIES consecutive failures and waits for the next daily anchor,
