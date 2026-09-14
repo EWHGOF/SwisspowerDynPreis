@@ -8,6 +8,8 @@ from typing import Any
 
 from homeassistant.util import dt as dt_util
 
+from .vat import apply_multiplier
+
 
 # Slot ends are stored inclusively (the last second that still belongs to the
 # slot), so a slot's duration is end - start plus one second.
@@ -59,8 +61,24 @@ def extract_slot_value(
     slot: dict[str, Any],
     tariff_type: str,
     component: str | None,
+    multiplier: float = 1.0,
 ) -> float | None:
-    """Extract the slot value for a given tariff type and component."""
+    """Extract the slot value for a given tariff type and component.
+
+    ``multiplier`` scales the net price the API publishes - 1.081 for 8.1% VAT,
+    and 1.0, the default, for the raw value. It is applied here, in the one
+    function every price in the integration passes through, so that no caller
+    can forget it and show a net price next to a gross one.
+    """
+    return apply_multiplier(_raw_slot_value(slot, tariff_type, component), multiplier)
+
+
+def _raw_slot_value(
+    slot: dict[str, Any],
+    tariff_type: str,
+    component: str | None,
+) -> float | None:
+    """Return the slot value exactly as the API sent it."""
     if component is None and isinstance(slot.get("value"), (int, float)):
         return slot.get("value")
     prices = slot.get(tariff_type)
@@ -121,8 +139,14 @@ def normalize_price_slots(
     slots: list[dict[str, Any]],
     tariff_type: str,
     component: str | None = None,
+    multiplier: float = 1.0,
 ) -> list[PriceSlot]:
-    """Normalize raw slots into typed price slots."""
+    """Normalize raw slots into typed price slots.
+
+    ``multiplier`` is handed to extract_slot_value, so every statistic built on
+    normalized slots - averages, windows, the chart attributes - carries VAT if
+    the rest of the integration does.
+    """
     normalized: list[PriceSlot] = []
     for slot in slots:
         if not isinstance(slot, dict):
@@ -131,7 +155,7 @@ def normalize_price_slots(
         if bounds is None:
             continue
         start, end = bounds
-        value = extract_slot_value(slot, tariff_type, component)
+        value = extract_slot_value(slot, tariff_type, component, multiplier)
         if value is None:
             continue
         normalized.append(PriceSlot(start=start, end=end, value=value))

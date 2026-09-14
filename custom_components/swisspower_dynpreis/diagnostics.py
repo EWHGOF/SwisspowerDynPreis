@@ -32,6 +32,9 @@ async def async_get_config_entry_diagnostics(
             "options": dict(entry.options),
         },
         "schedule": coordinator.schedule_state(),
+        # Which rate is on the prices right now and where it came from - the
+        # first thing to look at when a price does not match the bill.
+        "vat": coordinator.vat_state(),
         "tariff_types": {
             tariff_type: {
                 "last_successful_fetch": (

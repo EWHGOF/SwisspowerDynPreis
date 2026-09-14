@@ -49,11 +49,17 @@
         "data": {
           "update_time": "Abrufzeit morgens (lokale Zeit)",
           "update_time_pm": "Abrufzeit nachmittags (lokale Zeit)",
+          "vat_rate": "MWST-Satz",
+          "vat_entity": "MWST-Satz aus einer Entity (optional)",
+          "vat_tariff_types": "MWST auf diese Tariftypen aufschlagen",
           "query_year": "Testjahr (optional)"
         },
         "data_description": {
           "update_time": "Der erste Abruf des Tages.",
           "update_time_pm": "Der zweite Abruf. Die meisten Energieversorger publizieren die Preise für morgen erst am Nachmittag; ein reiner Morgen-Abruf sieht sie also nie.",
+          "vat_rate": "Die API liefert Preise ohne MWST. Dieser Satz wird auf jeden Preis, jede Statistik und jedes Diagramm-Attribut aufgeschlagen. Bei 0 bleiben die Preise genau so, wie der Energieversorger sie sendet.",
+          "vat_entity": "Den Satz stattdessen aus dem Zustand dieser Entity lesen - ein input_number, eine number oder ein sensor mit dem Prozentwert. Praktisch, wenn sich der Satz ändert: eine Entity-Änderung statt einer Neukonfiguration. Solange die Entity keinen brauchbaren Zustand hat, gilt der zuletzt gelesene Satz weiter; bevor sie je einen hatte, gilt der feste Satz oben.",
+          "vat_tariff_types": "Die Rückvergütung ist standardmässig ausgenommen: sie ist eine Gutschrift an dich und kein Einkauf, ein nicht MWST-pflichtiger Haushalt schlägt dort also keine MWST auf.",
           "query_year": "Nur zum Testen: schreibt das Abfragejahr um. Für den Normalbetrieb leer lassen."
         }
       }
