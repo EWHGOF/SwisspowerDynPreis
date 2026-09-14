@@ -24,14 +24,21 @@ from .const import (
     CONF_UPDATE_TIME,
     CONF_UPDATE_TIME_PM,
     CONF_QUERY_YEAR,
+    CONF_VAT_ENTITY,
+    CONF_VAT_RATE,
+    CONF_VAT_TARIFF_TYPES,
     DEFAULT_NAME,
     DEFAULT_UPDATE_TIME,
     DEFAULT_UPDATE_TIME_PM,
+    DEFAULT_VAT_RATE,
     DOMAIN,
+    MAX_VAT_RATE,
     METHOD_METERING_CODE,
     METHOD_TARIFF_NAME,
     TARIFF_TYPES,
+    VAT_EXEMPT_TARIFF_TYPES,
 )
+from .vat import parse_vat_rate
 
 
 class SwisspowerDynPreisConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -141,6 +148,16 @@ class SwisspowerDynPreisOptionsFlowHandler(config_entries.OptionsFlow):
         query_year = self._config_entry.options.get(CONF_QUERY_YEAR)
         default_year = "" if query_year in (None, "") else str(query_year)
 
+        default_vat_rate = parse_vat_rate(self._config_entry.options.get(CONF_VAT_RATE))
+        if default_vat_rate is None:
+            default_vat_rate = DEFAULT_VAT_RATE
+        # No ``default`` for the entity: voluptuous fills a default in when the
+        # key is missing, and the key is exactly what is missing after the user
+        # clears the field - so a default would make the entity impossible to
+        # remove again. A suggested value pre-fills the form without that.
+        vat_entity = self._config_entry.options.get(CONF_VAT_ENTITY) or None
+        default_vat_types = self._default_vat_tariff_types()
+
         # Every key the coordinator reads has to be in this schema: saving the
         # options replaces the whole dict, so a missing key gets dropped.
         schema = vol.Schema(
@@ -154,12 +171,71 @@ class SwisspowerDynPreisOptionsFlowHandler(config_entries.OptionsFlow):
                     default=default_update_time_pm.strftime("%H:%M:%S"),
                 ): selector.TimeSelector(),
                 vol.Optional(
+                    CONF_VAT_RATE,
+                    default=default_vat_rate,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=MAX_VAT_RATE,
+                        # The rate is typed, not dragged: a slider cannot hit
+                        # 8.1 and "any" keeps voluptuous from rejecting it for
+                        # not being a multiple of some step.
+                        step="any",
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="%",
+                    )
+                ),
+                vol.Optional(
+                    CONF_VAT_ENTITY,
+                    description={"suggested_value": vat_entity},
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain=["input_number", "number", "sensor"]
+                    )
+                ),
+                vol.Required(
+                    CONF_VAT_TARIFF_TYPES,
+                    default=default_vat_types,
+                ): cv.multi_select(self._configured_tariff_types()),
+                vol.Optional(
                     CONF_QUERY_YEAR,
                     default=default_year,
                 ): selector.TextSelector(),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)
+
+    def _configured_tariff_types(self) -> list[str]:
+        """Return the tariff types this entry was set up for."""
+        tariff_types = self._config_entry.data.get(CONF_TARIFF_TYPES)
+        if not isinstance(tariff_types, list):
+            return []
+        return [
+            tariff_type
+            for tariff_type in TARIFF_TYPES
+            if tariff_type in tariff_types
+        ]
+
+    def _default_vat_tariff_types(self) -> list[str]:
+        """Return which tariff types the VAT checkboxes start out ticked for.
+
+        A stored list is a choice the user made and is shown back as it is,
+        minus any type the entry no longer fetches. Nothing stored means the
+        option was never touched, and then everything but the exempt types is
+        ticked - adding VAT to a feed-in credit would be a wrong number, so it
+        has to be asked for rather than arrived at by default.
+        """
+        configured = self._configured_tariff_types()
+        stored = self._config_entry.options.get(CONF_VAT_TARIFF_TYPES)
+        if isinstance(stored, list):
+            return [
+                tariff_type for tariff_type in configured if tariff_type in stored
+            ]
+        return [
+            tariff_type
+            for tariff_type in configured
+            if tariff_type not in VAT_EXEMPT_TARIFF_TYPES
+        ]
 
     def _option_time(self, key: str, fallback: str) -> time:
         """Read a stored time option, falling back to its default."""

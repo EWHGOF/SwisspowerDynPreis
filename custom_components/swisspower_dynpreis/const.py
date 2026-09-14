@@ -12,6 +12,9 @@ CONF_TOKEN = "token"
 CONF_UPDATE_TIME = "update_time"
 CONF_UPDATE_TIME_PM = "update_time_pm"
 CONF_QUERY_YEAR = "query_year"
+CONF_VAT_RATE = "vat_rate"
+CONF_VAT_ENTITY = "vat_entity"
+CONF_VAT_TARIFF_TYPES = "vat_tariff_types"
 
 METHOD_METERING_CODE = "metering_code"
 METHOD_TARIFF_NAME = "tariff_name"
@@ -22,6 +25,28 @@ API_BASE = "https://esit.code-fabrik.ch/api/v1"
 DEFAULT_UPDATE_TIME = "06:00"
 DEFAULT_UPDATE_TIME_PM = "14:00"
 TIMEOUT_SECONDS = 20
+
+# The API publishes net prices. The integration adds VAT on top of them, at a
+# rate that is either typed into the options or read from an entity - an
+# input_number or a sensor - so a rate change is one entity write rather than a
+# reconfiguration. Zero, the default, leaves every price exactly as it arrives.
+DEFAULT_VAT_RATE = 0.0
+
+# Sanity bound for a rate, whether typed in or read from an entity. A sensor
+# that reports 810 instead of 8.1 would otherwise multiply every price by nine
+# without anything looking wrong.
+MAX_VAT_RATE = 100.0
+
+# Decimals a price is rounded to after VAT has been applied. The API publishes
+# four, and multiplying by 1.081 otherwise turns 0.1475 into
+# 0.15944750000000002 in every attribute and every chart tooltip.
+VAT_DECIMALS = 6
+
+# Tariff types VAT is not applied to unless the user asks for it. A feed-in
+# tariff is a credit to the customer, not a purchase, so a household that is
+# not itself registered for VAT never adds it there - and silently inflating
+# that number by 8.1% would be a wrong price, not a rounding detail.
+VAT_EXEMPT_TARIFF_TYPES = ("feed_in",)
 
 # How many days ahead the request window reaches. The window runs from the
 # start of the local day to the start of the local day this many days later,

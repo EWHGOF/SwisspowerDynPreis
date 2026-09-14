@@ -55,9 +55,14 @@ class SensorDescription:
     name: str
     enabled_default: bool
     unit: str | None
-    value_fn: Callable[[list[dict[str, Any]], datetime, str, str | None], Any]
+    # (slots, now, tariff type, component, VAT multiplier). The multiplier is
+    # part of the signature even for the one description that cannot use it, so
+    # that adding a price sensor cannot quietly leave VAT off.
+    value_fn: Callable[[list[dict[str, Any]], datetime, str, str | None, float], Any]
     extra_fn: (
-        Callable[[list[dict[str, Any]], datetime, str, str | None], dict[str, Any]]
+        Callable[
+            [list[dict[str, Any]], datetime, str, str | None, float], dict[str, Any]
+        ]
         | None
     ) = None
     device_class: SensorDeviceClass | None = None
@@ -72,7 +77,9 @@ _DERIVED_DESCRIPTIONS: tuple[SensorDescription, ...] = (
         # install starts with the numeric price entities alone.
         enabled_default=False,
         unit=None,
-        value_fn=lambda slots, now, tariff, component: next_change(
+        # The multiplier is accepted and dropped: this state is a timestamp,
+        # and VAT moves prices, not when they change.
+        value_fn=lambda slots, now, tariff, component, multiplier: next_change(
             slots, now, tariff, component
         ),
         device_class=SensorDeviceClass.TIMESTAMP,
@@ -82,11 +89,11 @@ _DERIVED_DESCRIPTIONS: tuple[SensorDescription, ...] = (
         name="Average price today",
         enabled_default=True,
         unit="CHF/kWh",
-        value_fn=lambda slots, now, tariff, component: average_for_day(
-            slots, now, 0, tariff, component
+        value_fn=lambda slots, now, tariff, component, multiplier: average_for_day(
+            slots, now, 0, tariff, component, multiplier
         ),
-        extra_fn=lambda slots, now, tariff, component: day_stats(
-            slots, now, 0, tariff, component
+        extra_fn=lambda slots, now, tariff, component, multiplier: day_stats(
+            slots, now, 0, tariff, component, multiplier
         ),
     ),
     SensorDescription(
@@ -94,11 +101,11 @@ _DERIVED_DESCRIPTIONS: tuple[SensorDescription, ...] = (
         name="Average price tomorrow",
         enabled_default=True,
         unit="CHF/kWh",
-        value_fn=lambda slots, now, tariff, component: average_for_day(
-            slots, now, 1, tariff, component
+        value_fn=lambda slots, now, tariff, component, multiplier: average_for_day(
+            slots, now, 1, tariff, component, multiplier
         ),
-        extra_fn=lambda slots, now, tariff, component: day_stats(
-            slots, now, 1, tariff, component
+        extra_fn=lambda slots, now, tariff, component, multiplier: day_stats(
+            slots, now, 1, tariff, component, multiplier
         ),
     ),
 )
@@ -126,11 +133,11 @@ def _window_description(
         name=name,
         enabled_default=True,
         unit="CHF/kWh",
-        value_fn=lambda slots, now, tariff, component: window_value(
-            slots, now, offset_days, hours, tariff, component, extreme
+        value_fn=lambda slots, now, tariff, component, multiplier: window_value(
+            slots, now, offset_days, hours, tariff, component, extreme, multiplier
         ),
-        extra_fn=lambda slots, now, tariff, component: window_attrs(
-            slots, now, offset_days, hours, tariff, component, extreme
+        extra_fn=lambda slots, now, tariff, component, multiplier: window_attrs(
+            slots, now, offset_days, hours, tariff, component, extreme, multiplier
         ),
     )
 
@@ -251,7 +258,9 @@ class SwisspowerDynPreisCurrentPriceSensor(SwisspowerDynPreisEntity, SensorEntit
         slot = find_current_slot(self.price_slots, dt_util.now())
         if not slot:
             return None
-        return extract_slot_value(slot, self._tariff_type, self._component)
+        return extract_slot_value(
+            slot, self._tariff_type, self._component, self.price_multiplier
+        )
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -265,19 +274,27 @@ class SwisspowerDynPreisCurrentPriceSensor(SwisspowerDynPreisEntity, SensorEntit
         current_start = None
         current_end = None
         current_value = None
+        multiplier = self.price_multiplier
         if slot:
             current_start = slot.get("start_timestamp")
             current_end = slot.get("end_timestamp")
-            current_value = extract_slot_value(slot, self._tariff_type, self._component)
+            current_value = extract_slot_value(
+                slot, self._tariff_type, self._component, multiplier
+            )
         last_success = self.coordinator.last_success(self._tariff_type)
         # Normalized once and handed to every display helper below. This is
         # also the only place the component is applied: the raw "prices"
         # attribute is the unfiltered API payload, identical on every component
         # sensor of a tariff type, which is why a chart cannot use it directly.
-        normalized = normalize_price_slots(slots, self._tariff_type, self._component)
+        normalized = normalize_price_slots(
+            slots, self._tariff_type, self._component, multiplier
+        )
         return {
             "tariff_type": self._tariff_type,
             "component": self._component,
+            # The unfiltered API payload, and the one thing here VAT is never
+            # applied to: it is what the supplier sent, net, and the diagnostic
+            # raw response sensor has to be able to agree with it.
             "prices": slots,
             # The chart-ready views: values already resolved for this entity's
             # tariff type and component, "end" still inclusive.
@@ -295,6 +312,11 @@ class SwisspowerDynPreisCurrentPriceSensor(SwisspowerDynPreisEntity, SensorEntit
             "current_start_timestamp": current_start,
             "current_end_timestamp": current_end,
             "current_value": current_value,
+            # What was added on top of the API's net prices, so a dashboard or
+            # an automation can say which of the two it is looking at. 0.0 when
+            # the feature is off, and when this tariff type is excluded from
+            # it - the prices above are then the API's own numbers.
+            "vat_rate": round((multiplier - 1.0) * 100, 4),
             # So an outage that is being masked by cached prices is still
             # visible, in the state machine and to automations.
             "last_successful_fetch": (
@@ -352,7 +374,11 @@ class SwisspowerDynPreisStatSensor(SwisspowerDynPreisEntity, SensorEntity):
     @property
     def native_value(self) -> Any:
         return self._description.value_fn(
-            self.price_slots, dt_util.now(), self._tariff_type, None
+            self.price_slots,
+            dt_util.now(),
+            self._tariff_type,
+            None,
+            self.price_multiplier,
         )
 
     @property
@@ -360,7 +386,11 @@ class SwisspowerDynPreisStatSensor(SwisspowerDynPreisEntity, SensorEntity):
         if not self._description.extra_fn:
             return {}
         return self._description.extra_fn(
-            self.price_slots, dt_util.now(), self._tariff_type, None
+            self.price_slots,
+            dt_util.now(),
+            self._tariff_type,
+            None,
+            self.price_multiplier,
         )
 
 

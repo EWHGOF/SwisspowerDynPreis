@@ -52,6 +52,9 @@ Als `sensor.*`:
 - **Lowest 2h/4h window today/tomorrow** (CHF/kWh): günstigstes 2h/4h-Fenster.
 - **Highest 2h/4h window today/tomorrow** (CHF/kWh): teuerstes 2h/4h-Fenster.
 
+Alle CHF/kWh-Werte sind die Preise der API, also **ohne MWST** — ausser es ist
+eine [MWST konfiguriert](#mwst-aufschlagen).
+
 Als `binary_sensor.*`:
 
 - **Cheapest 10/25/50% hours today**: Ein, wenn der aktuelle Preis zu den günstigsten 10/25/50% des Tages gehört.
@@ -127,6 +130,7 @@ nicht:
 | Nur Entities mit Zahlenwert standardmässig aktiv | keine; bestehende Entities behalten ihren Zustand |
 | Neuer Button `Refresh now` | kommt beim ersten Start dazu, aktiv |
 | Neue Diagnose-Entity `API response` | kommt beim ersten Start dazu, inaktiv |
+| [MWST aufschlagen](#mwst-aufschlagen) | keine; ohne konfigurierten Satz bleibt jeder Preis der Nettopreis der API |
 
 Die Binärsensoren lagen früher fälschlich in der `sensor`-Domain (mit dem
 Zustand `on`/`off`). Beim ersten Start nach dem Update werden die alten
@@ -167,6 +171,7 @@ aufgelöst, `end` ist wie überall die letzte Sekunde des Slots:
 | `prices_upcoming` | alles ab jetzt bis zum Fensterende, inklusive des laufenden Slots |
 | `price_days` | pro Tag im Fenster `{date, average, min, max, slots, coverage}` |
 | `tomorrow_valid` | `true`, wenn morgen für **diese** Entity vollständig vorliegt |
+| `vat_rate` | der MWST-Satz in Prozent, der in diesen Werten steckt (0, wenn keiner) |
 
 `coverage` ist der Anteil der echten Tageslänge, für den Preise vorliegen (in
 Sekunden gemessen, damit es auch an den 23- und 25-Stunden-Tagen der
@@ -179,8 +184,10 @@ Sicht, an der der Abrufplan hängt.
 
 Das ältere Attribut `prices` bleibt unverändert: es ist die **rohe**
 API-Antwort, mit dem Wert verschachtelt unter Tariftyp und Komponentenliste,
-und auf allen Komponenten-Sensoren eines Tariftyps identisch. Für ein Diagramm
-sind die Attribute aus der Tabelle gedacht.
+und auf allen Komponenten-Sensoren eines Tariftyps identisch. Es bleibt auch
+dann netto, wenn eine [MWST](#mwst-aufschlagen) konfiguriert ist — es ist das,
+was der Energieversorger geschickt hat. Für ein Diagramm sind die Attribute aus
+der Tabelle gedacht.
 
 ### Diagramm der kommenden Preise
 
@@ -353,6 +360,74 @@ die sonst schwer zu greifen sind, stehen also drin:
 - Geschrieben wird sie nur, wenn ein Abruf wirklich etwas Neues gebracht hat —
   nicht bei jedem Preiswechsel.
 
+## MWST aufschlagen
+
+Die API liefert die Preise **ohne MWST**. Wer den Preis sehen will, der auf der
+Rechnung steht, hinterlegt den Satz in den Optionen. Dafür gibt es drei Felder:
+
+| Option | Bedeutung |
+| --- | --- |
+| **MWST-Satz** | ein fester Prozentwert, z. B. `8.1` |
+| **MWST-Satz aus einer Entity** | eine Entity (`input_number`, `number` oder `sensor`), deren Zustand der Prozentwert ist |
+| **MWST auf diese Tariftypen aufschlagen** | auf welche der konfigurierten Tariftypen der Satz angewendet wird |
+
+Ist eine Entity gewählt, gilt deren Wert; der feste Satz ist der Rückfall,
+solange die Entity noch nie einen brauchbaren Zustand hatte — das ist der
+Zeitraum nach einem Neustart, bevor ein `input_number` wiederhergestellt ist.
+`0` als Satz lässt jeden Preis exakt so, wie er von der API kommt.
+
+Der Vorteil der Entity-Variante: ändert der Satz (2018 von 8.0 auf 7.7, 2024
+auf 8.1), genügt eine Änderung an der Entity — die Integration muss nicht neu
+konfiguriert werden und rechnet sofort neu, **ohne** eine zusätzliche
+API-Abfrage. Ein `input_number` dafür:
+
+```yaml
+input_number:
+  mwst:
+    name: MWST
+    min: 0
+    max: 100
+    step: 0.1
+    unit_of_measurement: "%"
+    initial: 8.1
+```
+
+### Was den Satz bekommt — und was nicht
+
+Angewendet wird er auf **jeden Preis, den die Integration berechnet**: den
+aktuellen Preis (auch je Komponente), die Tagesdurchschnitte samt min/max, die
+Lowest/Highest-Fenster und sämtliche Kurven-Attribute (`prices_today`,
+`prices_tomorrow`, `prices_upcoming`, `price_days`).
+
+Nicht angewendet wird er auf:
+
+- **`prices`** und die Diagnose-Entity **API response** — beides ist die rohe
+  Antwort des Energieversorgers und bleibt netto, damit sich die beiden
+  vergleichen lassen;
+- die **Binärsensoren** — sie vergleichen die Preise eines Tages
+  untereinander, und ein Faktor auf allen Werten verschiebt keine Schwelle;
+- **Next change** — ein Zeitstempel;
+- Tariftypen, die im Multi-Select nicht angehakt sind.
+
+Standardmässig angehakt sind alle konfigurierten Tariftypen **ausser
+`feed_in`**: die Rückliefervergütung ist eine Gutschrift und kein Einkauf, ein
+nicht MWST-pflichtiger Haushalt schlägt dort also nichts auf. Wer MWST-pflichtig
+ist, hakt ihn an.
+
+Was tatsächlich in einem Wert steckt, sagt das Attribut `vat_rate` des
+**Current price**-Sensors — `0`, wenn für diesen Tariftyp nichts aufgeschlagen
+wurde. Die Diagnose-Datei nennt zusätzlich, woher der Satz stammt (`entity`,
+`option` oder `none`).
+
+### Wenn die Entity nicht antwortet
+
+Geht die Entity auf `unknown` oder `unavailable` oder verschwindet sie, bleibt
+der **zuletzt gelesene Satz** in Kraft. Ein solcher Aussetzer als «0 %» gelesen
+würde jeden Preis für die Dauer der Lücke um 8.1 % senken und danach wieder
+anheben — von einer echten Tarifänderung wäre das nicht zu unterscheiden.
+Dasselbe gilt für einen unplausiblen Wert: ein Zustand unter 0 oder über 100
+(etwa `810` statt `8.1`) wird ignoriert.
+
 ## Optionen
 
 In den Optionen werden zwei tägliche Abrufzeiten (lokale Zeit) definiert:
@@ -381,6 +456,8 @@ Zusätzlich gilt:
 - **Testjahr** (optional) schreibt das Abfragejahr um und ist nur zum Testen
   gedacht. In diesem Modus wird nicht nach den Preisen für morgen nachgefragt,
   es gelten nur die beiden Abrufzeiten.
+- Die drei MWST-Felder stehen im selben Dialog und sind oben unter
+  [MWST aufschlagen](#mwst-aufschlagen) beschrieben.
 
 Die Sensorwerte werden unabhängig von den Abrufen laufend aktualisiert: bei
 jedem Preiswechsel und um lokal 00:00 Uhr wird aus den bereits geladenen Daten

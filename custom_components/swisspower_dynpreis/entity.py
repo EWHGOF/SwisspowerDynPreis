@@ -64,6 +64,17 @@ class SwisspowerDynPreisEntity(CoordinatorEntity[SwisspowerDynPreisCoordinator])
         return isinstance(data, dict) and self._tariff_type in data
 
     @property
+    def price_multiplier(self) -> float:
+        """Return the factor this entity's prices are scaled by.
+
+        1.0 unless VAT is configured for this tariff type, in which case it is
+        1 + rate/100. Every price this entity shows goes through it, so the
+        state, the statistics and the chart attributes can never disagree about
+        whether they include VAT.
+        """
+        return self.coordinator.vat_multiplier_for(self._tariff_type)
+
+    @property
     def price_slots(self) -> list[dict[str, Any]]:
         """Return the cached slots for this tariff type, or an empty list.
 

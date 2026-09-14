@@ -26,6 +26,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import (
     async_track_point_in_time,
+    async_track_state_change_event,
     async_track_time_change,
 )
 from homeassistant.helpers.update_coordinator import (
@@ -48,17 +49,23 @@ from .const import (
     CONF_TOKEN,
     CONF_UPDATE_TIME,
     CONF_UPDATE_TIME_PM,
+    CONF_VAT_ENTITY,
+    CONF_VAT_RATE,
+    CONF_VAT_TARIFF_TYPES,
     DEFAULT_UPDATE_TIME,
     DEFAULT_UPDATE_TIME_PM,
+    DEFAULT_VAT_RATE,
     DOMAIN,
     HUNT_MINUTES,
     HUNT_STOP_HOUR,
     MAX_RETRY_AFTER_SECONDS,
     TODAY_HUNT_MINUTES,
     TOMORROW_COVERAGE_RATIO,
+    VAT_EXEMPT_TARIFF_TYPES,
     WINDOW_DAYS_FORWARD,
 )
 from .pricing import find_current_slot, slot_bounds
+from .vat import parse_vat_rate, vat_multiplier
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -91,6 +98,19 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             options.get(CONF_UPDATE_TIME_PM, DEFAULT_UPDATE_TIME_PM)
         )
         self._query_year = _coerce_year(options.get(CONF_QUERY_YEAR))
+
+        # VAT. The API answers with net prices; the rate that belongs on top is
+        # a property of the customer, so it comes from the options: either a
+        # fixed percentage or an entity to follow. The entity wins while it has
+        # a usable state, and the fixed rate is what applies before it ever does
+        # - which is the whole of a restart, where an input_number is restored
+        # some way into the setup of this entry.
+        self._vat_rate_option = parse_vat_rate(options.get(CONF_VAT_RATE))
+        self._vat_entity_id = options.get(CONF_VAT_ENTITY) or None
+        self._vat_entity_rate: float | None = None
+        self._vat_tariff_types = _vat_tariff_types(
+            self._tariff_types, options.get(CONF_VAT_TARIFF_TYPES)
+        )
 
         self.tariff_status: dict[str, TariffStatus] = {}
         # The API's answers as received, per tariff type, before this
@@ -143,6 +163,18 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # async_shutdown on the entry first. Unload callbacks drain LIFO, so
         # ours run before it: stop the timers, then shut the coordinator down.
         entry.async_on_unload(self._async_cancel_timers)
+
+        if self._vat_entity_id is not None:
+            vat_state = hass.states.get(self._vat_entity_id)
+            self._vat_entity_rate = parse_vat_rate(
+                vat_state.state if vat_state is not None else None
+            )
+            entry.async_on_unload(
+                async_track_state_change_event(
+                    hass, [self._vat_entity_id], self._handle_vat_state
+                )
+            )
+
         for anchor in (self._update_time, self._update_time_pm):
             if anchor is None:
                 continue
@@ -167,6 +199,71 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._render_unsub is not None:
             self._render_unsub()
             self._render_unsub = None
+
+    # ------------------------------------------------------------------
+    # VAT
+    # ------------------------------------------------------------------
+
+    @callback
+    def _handle_vat_state(self, event: Any) -> None:
+        """Follow the entity the VAT rate is read from.
+
+        An unusable state - unknown, unavailable, a template that is briefly
+        unrenderable, a restart - is ignored rather than treated as zero. Read
+        as zero it would knock the whole VAT off every price for as long as the
+        gap lasts and then put it back, which looks exactly like the supplier
+        having changed the tariff. The last rate that could be read stays in
+        force until a usable one arrives.
+
+        A price is a function of (cached slots, now, rate), so a new rate has to
+        be pushed to the entities the same way a slot boundary is: no fetch,
+        just a re-render.
+        """
+        new_state = event.data.get("new_state")
+        rate = parse_vat_rate(new_state.state if new_state is not None else None)
+        if rate is None or rate == self._vat_entity_rate:
+            return
+        _LOGGER.debug(
+            "VAT rate from %s is now %s%%", self._vat_entity_id, rate
+        )
+        self._vat_entity_rate = rate
+        self.async_update_listeners()
+
+    @property
+    def vat_rate(self) -> float:
+        """Return the VAT rate in percent that currently applies, or 0."""
+        if self._vat_entity_rate is not None:
+            return self._vat_entity_rate
+        if self._vat_rate_option is not None:
+            return self._vat_rate_option
+        return DEFAULT_VAT_RATE
+
+    def vat_multiplier_for(self, tariff_type: str) -> float:
+        """Return the factor this tariff type's net prices are multiplied by.
+
+        Per tariff type rather than one factor for the whole entry, because a
+        feed-in tariff is a credit rather than a purchase: adding VAT there
+        would be a wrong number, not a preference. Which types are included is
+        the user's choice; the default leaves feed_in out.
+        """
+        if tariff_type not in self._vat_tariff_types:
+            return 1.0
+        return vat_multiplier(self.vat_rate)
+
+    def vat_state(self) -> dict[str, Any]:
+        """Describe which VAT rate is in force and where it came from."""
+        if self._vat_entity_rate is not None:
+            source = "entity"
+        elif self._vat_rate_option:
+            source = "option"
+        else:
+            source = "none"
+        return {
+            "rate": self.vat_rate,
+            "source": source,
+            "entity_id": self._vat_entity_id,
+            "tariff_types": sorted(self._vat_tariff_types),
+        }
 
     # ------------------------------------------------------------------
     # Render clock
@@ -858,6 +955,29 @@ def _parse_retry_after(headers: Any) -> timedelta | None:
     if seconds <= 0:
         return None
     return timedelta(seconds=min(seconds, MAX_RETRY_AFTER_SECONDS))
+
+
+def _vat_tariff_types(configured: list[str], stored: Any) -> set[str]:
+    """Return which tariff types VAT applies to.
+
+    A stored list is the user's choice, narrowed to the types this entry really
+    fetches - so a list left over from a differently configured entry cannot
+    name a type that has no entities. A stored empty list is a choice too: VAT
+    on nothing, with the rate left in place.
+
+    Nothing stored means the option was never touched. Then every type but the
+    exempt ones gets VAT, because adding VAT to a feed-in credit has to be
+    asked for rather than arrived at by default.
+    """
+    if isinstance(stored, list):
+        return {
+            tariff_type for tariff_type in configured if tariff_type in stored
+        }
+    return {
+        tariff_type
+        for tariff_type in configured
+        if tariff_type not in VAT_EXEMPT_TARIFF_TYPES
+    }
 
 
 def _coerce_year(value: Any) -> int | None:

@@ -48,9 +48,10 @@ def average_for_day(
     offset_days: int,
     tariff_type: str,
     component: str | None,
+    multiplier: float = 1.0,
 ) -> float | None:
     """Return the time-weighted average price for a local day."""
-    normalized = normalize_price_slots(slots, tariff_type, component)
+    normalized = normalize_price_slots(slots, tariff_type, component, multiplier)
     start, end_exclusive = day_bounds(now, offset_days)
     return average_price_for_window(normalized, start, end_exclusive)
 
@@ -61,9 +62,10 @@ def day_stats(
     offset_days: int,
     tariff_type: str,
     component: str | None,
+    multiplier: float = 1.0,
 ) -> dict[str, Any]:
     """Return min/max/average statistics for a local day."""
-    normalized = normalize_price_slots(slots, tariff_type, component)
+    normalized = normalize_price_slots(slots, tariff_type, component, multiplier)
     start, end_exclusive = day_bounds(now, offset_days)
     values = [slot.value for slot in normalized if start <= slot.start < end_exclusive]
     if not values:
@@ -84,9 +86,10 @@ def window_value(
     tariff_type: str,
     component: str | None,
     extreme: str,
+    multiplier: float = 1.0,
 ) -> float | None:
     """Return the average price of the cheapest or dearest window of a day."""
-    normalized = normalize_price_slots(slots, tariff_type, component)
+    normalized = normalize_price_slots(slots, tariff_type, component, multiplier)
     start, end_exclusive = day_bounds(now, offset_days)
     result = window_extreme(
         normalized, start, end_exclusive, window_hours, extreme=extreme
@@ -104,9 +107,10 @@ def window_attrs(
     tariff_type: str,
     component: str | None,
     extreme: str,
+    multiplier: float = 1.0,
 ) -> dict[str, Any]:
     """Return where the cheapest or dearest window of a day sits."""
-    normalized = normalize_price_slots(slots, tariff_type, component)
+    normalized = normalize_price_slots(slots, tariff_type, component, multiplier)
     start, end_exclusive = day_bounds(now, offset_days)
     result = window_extreme(
         normalized, start, end_exclusive, window_hours, extreme=extreme
@@ -235,6 +239,11 @@ def percentile_binary(
     None means "no price for this instant" and must stay None: reporting it as
     False would claim the current price is outside the cheap band when in fact
     nothing is known about it.
+
+    No VAT multiplier here, and that is not an oversight: this compares prices
+    of one day against each other, and scaling every one of them by the same
+    positive factor cannot change which side of the threshold any of them is
+    on. The same holds for in_window below.
     """
     normalized = normalize_price_slots(slots, tariff_type, component)
     start, end_exclusive = day_bounds(now, 0)
