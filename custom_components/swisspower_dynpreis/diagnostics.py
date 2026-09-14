@@ -1,8 +1,14 @@
 """Diagnostics for Swisspower DynPreis.
 
 The point of this file is that "morgen bleibt leer" becomes answerable. It
-shows the schedule's decisions and how each tariff type last fared, without
-adding a single entity state write - and without the credentials.
+shows the schedule's decisions, how each tariff type last fared, and what the
+API actually sent - without adding a single entity state write.
+
+On credentials: the token and the metering code are redacted wherever they
+appear, including inside the raw payload, because async_redact_data recurses
+through dicts and lists. That is the whole of the guarantee. The raw responses
+are otherwise verbatim, so anything else a supplier chooses to put in its answer
+is in this file too - it is worth a look before attaching it to an issue.
 """
 
 from __future__ import annotations
@@ -50,4 +56,11 @@ async def async_get_config_entry_diagnostics(
             }
             for tariff_type, status in sorted(coordinator.tariff_status.items())
         },
+        # Last, because it is by far the largest section and everything above it
+        # is what someone skims first. The same view the diagnostic raw response
+        # sensor shows - a file you can open in an editor is the better place to
+        # read tens of kilobytes of it than the developer tools are.
+        "raw_responses": async_redact_data(
+            coordinator.raw_response_state(), TO_REDACT
+        ),
     }

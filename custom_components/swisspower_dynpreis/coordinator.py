@@ -722,10 +722,11 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.raw_bytes[tariff_type] = None
 
     def raw_response_state(self) -> dict[str, Any]:
-        """Describe the captured raw responses, for the diagnostic sensor.
+        """Describe the captured raw responses.
 
-        One place that knows the shape, so the sensor stays a thin view and
-        diagnostics could use the same thing.
+        One place that knows the shape, used by both readers: the diagnostic
+        raw response sensor, which shows it live, and the diagnostics download,
+        which is the practical way to read a payload this size.
         """
         return {
             "responses": dict(self.raw_responses),
