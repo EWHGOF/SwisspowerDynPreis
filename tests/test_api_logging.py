@@ -187,3 +187,141 @@ async def test_diagnostics_are_useful_and_redacted(
     assert result["tariff_types"]["electricity"]["slot_count"] == 24
     assert result["tariff_types"]["electricity"]["serving_from_cache"] is False
     assert result["tariff_types"]["electricity"]["last_successful_fetch"] is not None
+
+
+def _entry_with_credentials(tariff_types: list[str] | None = None) -> MockConfigEntry:
+    """A metering-code entry, so both redacted values are really in play."""
+    return MockConfigEntry(
+        domain=DOMAIN,
+        title="Test",
+        data={
+            CONF_NAME: "Test",
+            CONF_METHOD: METHOD_METERING_CODE,
+            CONF_METERING_CODE: METERING_CODE,
+            CONF_TOKEN: TOKEN,
+            CONF_TARIFF_TYPES: tariff_types or ["electricity"],
+        },
+        options={},
+    )
+
+
+async def test_diagnostics_carry_the_raw_response_unprocessed(
+    hass: HomeAssistant, api: FakeApi, freezer
+) -> None:
+    """The payload in the file is what the API sent, not what we made of it.
+
+    Same proof the sensor's own test uses: the published slots carry no
+    end_timestamp, and the integration fills one in. If the diagnostics copy has
+    one, it is showing the processed curve and is worthless for debugging.
+
+    A downloaded file is the practical way to read a payload this size - the
+    developer tools show the same thing, but tens of kilobytes of it.
+    """
+    from custom_components.swisspower_dynpreis.diagnostics import (
+        async_get_config_entry_diagnostics,
+    )
+
+    await set_time_zone(hass)
+    today = date(2026, 9, 7)
+    api.publish(
+        today,
+        [
+            {
+                "start_timestamp": at(2026, 9, 7, hour).isoformat(),
+                "electricity": [
+                    {"component": "energy", "unit": "CHF/kWh", "value": 0.20}
+                ],
+            }
+            for hour in range(24)
+        ],
+    )
+
+    entry = _entry_with_credentials()
+    freezer.move_to(at(2026, 9, 7, 6, 0))
+    await setup_integration(hass, entry)
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+    raw = result["raw_responses"]
+
+    assert [slot.get("end_timestamp") for slot in raw["responses"]["electricity"]["prices"]] == [
+        None
+    ] * 24
+    # And the processed side did fill them in, so the two differ for the reason
+    # claimed rather than because nothing happens at all.
+    assert all(
+        slot.get("end_timestamp")
+        for slot in hass.states.get(
+            "sensor.test_electricity_current_price"
+        ).attributes["prices"]
+    )
+
+    # So a reader can tell how old the payload is and how big it was.
+    assert raw["captured"]["electricity"].startswith("2026-09-07T06:00")
+    assert raw["bytes"]["electricity"] > 0
+
+
+async def test_a_metering_code_inside_the_payload_is_redacted(
+    hass: HomeAssistant, api: FakeApi, freezer
+) -> None:
+    """The safety net for putting an unfiltered payload in a shareable file.
+
+    A supplier may echo the metering code back in its own answer. Nothing in
+    this integration controls what goes into that body, so the redaction has to
+    reach into it - async_redact_data recurses through dicts and lists, and this
+    is what pins that it is actually relied on.
+    """
+    from custom_components.swisspower_dynpreis.diagnostics import (
+        async_get_config_entry_diagnostics,
+    )
+
+    await set_time_zone(hass)
+    today = date(2026, 9, 7)
+    slots = day_slots(today, [0.20] * 24)
+    # Echoed at two depths, because one working level proves nothing about the
+    # other: once next to the price slots, once inside a slot.
+    slots[0]["metering_code"] = METERING_CODE
+    slots[0]["token"] = TOKEN
+    api.publish(today, slots)
+
+    entry = _entry_with_credentials()
+    freezer.move_to(at(2026, 9, 7, 6, 0))
+    await setup_integration(hass, entry)
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert METERING_CODE not in json.dumps(result)
+    assert TOKEN not in json.dumps(result)
+    echoed = result["raw_responses"]["responses"]["electricity"]["prices"][0]
+    assert echoed["metering_code"] == "**REDACTED**"
+    assert echoed["token"] == "**REDACTED**"
+    # Redaction must not eat the payload around it.
+    assert echoed["electricity"][0]["value"] == 0.20
+
+
+async def test_diagnostics_cover_every_tariff_type(
+    hass: HomeAssistant, api: FakeApi, freezer
+) -> None:
+    """One file, every type - each type was its own request."""
+    from custom_components.swisspower_dynpreis.diagnostics import (
+        async_get_config_entry_diagnostics,
+    )
+
+    await set_time_zone(hass)
+    today = date(2026, 9, 7)
+    api.publish(today, day_slots(today, [0.20] * 24))
+    api.publish(
+        today,
+        day_slots(today, [0.05] * 24, tariff_type="grid"),
+        tariff_type="grid",
+    )
+
+    entry = _entry_with_credentials(["electricity", "grid"])
+    freezer.move_to(at(2026, 9, 7, 6, 0))
+    await setup_integration(hass, entry)
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+    assert set(result["raw_responses"]["responses"]) == {"electricity", "grid"}
+    assert (
+        result["raw_responses"]["responses"]["grid"]["prices"][0]["grid"][0]["value"]
+        == 0.05
+    )

@@ -69,7 +69,8 @@ Als `button.*`:
 
 Als Diagnose-Entity (`sensor.*`, standardmässig inaktiv):
 
-- **API response**: die unverarbeitete API-Antwort — siehe
+- **API response**: die unverarbeitete API-Antwort. Dieselben Daten stehen ohne
+  Einschalten im Diagnose-Download — siehe
   [Rohe API-Antwort ansehen](#rohe-api-antwort-ansehen).
 
 ### Was standardmässig aktiv ist
@@ -80,7 +81,7 @@ Drei Arten von Entities, drei Regeln:
 | --- | --- | --- |
 | Messwerte (`sensor.*`, `binary_sensor.*`) | aktiv, **wenn der Zustand eine Zahl ist** | Das sind die Preise, weswegen man die Integration installiert |
 | Bedienelement (`button.*`) | immer aktiv | Ein Bedienelement, das man erst suchen und einschalten muss, ist keines |
-| Diagnose (**API response**) | immer inaktiv | Trägt zehntausende Zeichen Rohdaten, die nur beim Fehlersuchen jemand braucht |
+| Diagnose (**API response**) | immer inaktiv | Trägt zehntausende Zeichen Rohdaten; wer sie braucht, kommt auch ohne Einschalten über den Diagnose-Download dran |
 
 Aktiv sind damit alle CHF/kWh-Sensoren — **Current price** (auch je Komponente),
 **Average price today/tomorrow** und die **Lowest/Highest**-Fenster — sowie der
@@ -307,20 +308,50 @@ also der Weg zurück, ohne auf die nächste Abrufzeit zu warten.
 
 Jede andere Entity zeigt einen Wert, den die Integration berechnet hat. Sieht
 einer davon falsch aus, ist die nächste Frage immer dieselbe: hat die API das so
-geschickt, oder haben wir uns das ausgedacht? Die Entity **`sensor.*_api_response`**
-beantwortet sie — sie hält die Antwort der API so, wie sie angekommen ist,
-**bevor** die Integration sie verarbeitet.
+geschickt, oder haben wir uns das ausgedacht? Die Antwort der API steht
+unverarbeitet zur Verfügung, **bevor** die Integration sie anfasst — auf zwei
+Wegen.
 
-Sie ist **standardmässig inaktiv** und muss in der Entitätenverwaltung
-eingeschaltet werden (Einstellungen → Geräte & Dienste → Entitäten →
-`API response` → Aktiviert).
+### Weg 1: Diagnose-Datei herunterladen (empfohlen)
 
-| | |
-| --- | --- |
-| Zustand | Grösse der gespeicherten Antworten in Bytes |
-| `responses` | pro Tariftyp die dekodierte Antwort, unverändert |
-| `captured` | pro Tariftyp, wann diese Antwort ankam |
-| `bytes` | pro Tariftyp deren Grösse |
+**Einstellungen → Geräte & Dienste → Swisspower DynPreis → ⋮ → Diagnose
+herunterladen.** In der JSON-Datei steht unter `raw_responses`:
+
+```
+raw_responses
+├─ responses   pro Tariftyp die dekodierte Antwort, unverändert
+├─ captured    pro Tariftyp, wann diese Antwort ankam
+└─ bytes       pro Tariftyp deren Grösse
+```
+
+Das ist der praktische Weg: eine Datei, ein Editor, Suchen und Falten wie
+gewohnt. Nichts muss vorher eingeschaltet werden, und die Datei enthält
+ausserdem den Zustand des Abrufplans, der meist zur Deutung dazugehört.
+
+### Weg 2: Die Entity `sensor.*_api_response`
+
+Für den Live-Blick und für Vorlagen und Automationen. Sie ist
+**standardmässig inaktiv** und muss erst eingeschaltet werden:
+
+1. Einstellungen → Geräte & Dienste → Reiter **Entitäten**
+2. Filter auf **«Deaktivierte Entitäten anzeigen»** setzen
+3. Nach `api_response` suchen, Entity öffnen → Zahnrad → **Aktiviert**
+
+Home Assistant lädt den Eintrag danach neu (etwa eine halbe Minute). Inhalt ist
+sofort da — erfasst wird unabhängig davon, ob die Entity aktiv ist.
+
+Angesehen wird sie unter Entwicklerwerkzeuge → **Zustände**, Filter
+`api_response`. Der Zustand ist die Grösse der gespeicherten Antworten in Bytes
+(ein Zustand ist auf 255 Zeichen begrenzt, die Nutzlast passt also nicht
+hinein); `responses`, `captured` und `bytes` stehen in den Attributen.
+
+Gezielt geht es über Entwicklerwerkzeuge → **Vorlage**:
+
+```jinja
+{{ state_attr('sensor.swisspower_dynpreis_api_response', 'responses')['electricity'] }}
+```
+
+### Was drinsteht
 
 Gespeichert wird immer nur die **letzte** Antwort je Tariftyp — ein Fenster auf
 den letzten Austausch, kein Protokoll. Schlägt ein Abruf fehl, bleibt die letzte
@@ -329,29 +360,37 @@ angekommene Antwort stehen; wie alt sie ist, sagt `captured`.
 Erfasst wird direkt nach dem Empfang, noch vor jeder Prüfung. Genau die Fälle,
 die sonst schwer zu greifen sind, stehen also drin:
 
-- die API antwortet mit HTTP 200 und einer **leeren Liste** — ohne diese Entity
-  sehen «keine Preise» und «keine Antwort» gleich aus;
+- die API antwortet mit HTTP 200 und einer **leeren Liste** — ohne das sehen
+  «keine Preise» und «keine Antwort» gleich aus;
 - die Antwort ist **kein JSON** (steht dann als `{"raw": "<Text>"}` drin);
 - die Antwort trägt ein **Fehler-Status-Feld**, das die Integration ablehnt.
 
+Für den buchstäblichen Antworttext, noch vor dem JSON-Parsen, gibt es das
+Debug-Log — siehe [Wenn etwas nicht stimmt](#wenn-etwas-nicht-stimmt).
+
 ### Grenzen
 
-- **Nichts wird entfernt.** Im Unterschied zur Diagnose-Datei sind Inhalte hier
-  nicht maskiert. Der Authentifizierungstoken kann nicht darin vorkommen (er
-  geht im HTTP-Header raus, nicht im Antwortkörper), aber alles, was der
-  Energieversorger in seine Antwort schreibt, steht unverändert da. Vor dem
-  Teilen — Screenshot, Issue, Forum — also anschauen.
+- **Nur Token und Messpunktnummer werden maskiert.** In der Diagnose-Datei
+  greift die Maskierung auch innerhalb der Rohantwort, falls ein
+  Energieversorger einen dieser Werte zurückspiegelt. Alles andere, was er in
+  seine Antwort schreibt, steht unverändert da — in der Datei wie in der Entity.
+  Vor dem Teilen — Issue, Forum, Screenshot — also anschauen. Der
+  Authentifizierungstoken kann ohnehin nicht vorkommen: er geht im HTTP-Header
+  raus, nicht im Antwortkörper.
+- **Die Diagnose-Datei wird dadurch deutlich grösser.** Bei fünf Tariftypen und
+  viertelstündlichen Preisen leicht einige hundert Kilobyte. Eine gekürzte
+  Rohantwort wäre keine, deshalb steht sie vollständig drin — aber das betrifft
+  jeden Download, nicht nur den Fehlersuch-Fall.
 - **Die Entity ist gross.** Die Nutzlast ist die gesamte Preiskurve aller
-  konfigurierten Tariftypen, je nach Tarif zehntausende Zeichen, und Home
-  Assistant schickt Attribute bei jeder Zustandsänderung an jeden offenen
-  Browser-Tab. Deshalb inaktiv als Vorgabe — und nach dem Fehlersuchen sinnvoll
-  wieder ausschalten.
+  konfigurierten Tariftypen, und Home Assistant schickt Attribute bei jeder
+  Zustandsänderung an jeden offenen Browser-Tab. Deshalb inaktiv als Vorgabe —
+  und nach dem Fehlersuchen sinnvoll wieder ausschalten.
 - **Nicht in der Historie.** Die drei Attribute sind von der Aufzeichnung
   ausgenommen. Die Langzeitdatenbank nimmt Attribute über 16 KB ohnehin nicht
-  an und würde das bei jedem Abruf ins Log schreiben. Die Entity zeigt den
-  aktuellen Stand, nicht den von gestern.
-- Geschrieben wird sie nur, wenn ein Abruf wirklich etwas Neues gebracht hat —
-  nicht bei jedem Preiswechsel.
+  an und würde das bei jedem Abruf ins Log schreiben. Gezeigt wird der aktuelle
+  Stand, nicht der von gestern.
+- Geschrieben wird die Entity nur, wenn ein Abruf wirklich etwas Neues gebracht
+  hat — nicht bei jedem Preiswechsel.
 
 ## Optionen
 
@@ -425,8 +464,14 @@ trägt.
 Unter **Einstellungen → Geräte & Dienste → Swisspower DynPreis → ⋮ →
 Diagnose herunterladen** gibt es den kompletten Zustand des Zeitplans (welcher
 Abruf wann geplant ist, wie weit das Abruffenster reicht, wann jeder Tariftyp
-zuletzt erfolgreich war, ob die Preise für morgen als vollständig gelten).
-Token und Messpunktnummer sind darin entfernt.
+zuletzt erfolgreich war, ob die Preise für morgen als vollständig gelten) —
+und unter `raw_responses` die unverarbeitete API-Antwort je Tariftyp, siehe
+[Rohe API-Antwort ansehen](#rohe-api-antwort-ansehen).
+
+Token und Messpunktnummer sind darin maskiert, auch wenn sie innerhalb der
+Rohantwort auftauchen. Was der Energieversorger sonst in seine Antwort
+schreibt, steht unverändert in der Datei — vor dem Anhängen an ein Issue also
+anschauen.
 
 Für mehr Details im Log:
 
