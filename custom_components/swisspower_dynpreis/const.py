@@ -11,6 +11,7 @@ CONF_TARIFF_TYPES = "tariff_types"
 CONF_TOKEN = "token"
 CONF_UPDATE_TIME = "update_time"
 CONF_UPDATE_TIME_PM = "update_time_pm"
+CONF_UPDATE_TIME_EVENING = "update_time_evening"
 CONF_QUERY_YEAR = "query_year"
 CONF_VAT_RATE = "vat_rate"
 CONF_VAT_ENTITY = "vat_entity"
@@ -22,8 +23,14 @@ METHOD_TARIFF_NAME = "tariff_name"
 TARIFF_TYPES = ["electricity", "grid", "dso", "integrated", "feed_in"]
 
 API_BASE = "https://esit.code-fabrik.ch/api/v1"
-DEFAULT_UPDATE_TIME = "06:00"
+# The three daily fetch times, asked for during setup and editable in the
+# options. The second one also gates the hunt for tomorrow's prices (see
+# _hunt_interval), because day-ahead prices are published in the afternoon;
+# the third catches a supplier that publishes late without waiting for the
+# hunt ladder to get there.
+DEFAULT_UPDATE_TIME = "01:00"
 DEFAULT_UPDATE_TIME_PM = "14:00"
+DEFAULT_UPDATE_TIME_EVENING = "18:30"
 TIMEOUT_SECONDS = 20
 
 # The API publishes net prices. The integration adds VAT on top of them, at a

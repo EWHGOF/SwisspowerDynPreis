@@ -35,6 +35,20 @@
         "data_description": {
           "tariff_types": "One set of entities per selected type, and one API request per type per fetch. Only the price entities are enabled by default; the timestamp, on/off and diagnostic ones are created disabled and can be switched on individually."
         }
+      },
+      "schedule": {
+        "title": "Fetch times",
+        "description": "The API is queried three times a day, each time for a window covering today and the next three days. These times can be changed later in the options.",
+        "data": {
+          "update_time": "Fetch time 1 (local time)",
+          "update_time_pm": "Fetch time 2 (local time)",
+          "update_time_evening": "Fetch time 3 (local time)"
+        },
+        "data_description": {
+          "update_time": "The first fetch of the day.",
+          "update_time_pm": "Most suppliers publish tomorrow's prices in the afternoon. While they are still missing after this time, the integration keeps asking at growing intervals.",
+          "update_time_evening": "An extra fetch for suppliers that publish late."
+        }
       }
     },
     "error": {
@@ -45,10 +59,11 @@
     "step": {
       "init": {
         "title": "Swisspower DynPreis options",
-        "description": "The API is queried at the morning and the afternoon time, each time for a window covering today and the next three days. Most suppliers only publish tomorrow's prices in the afternoon; while they are still missing, the integration asks again at growing intervals after the afternoon time. The \"Refresh now\" button fetches immediately, outside this schedule.",
+        "description": "The API is queried at the three fetch times, each time for a window covering today and the next three days. Most suppliers only publish tomorrow's prices in the afternoon; while they are still missing, the integration asks again at growing intervals after fetch time 2. The \"Refresh now\" button fetches immediately, outside this schedule.",
         "data": {
-          "update_time": "Fetch time, morning (local time)",
-          "update_time_pm": "Fetch time, afternoon (local time)",
+          "update_time": "Fetch time 1 (local time)",
+          "update_time_pm": "Fetch time 2 (local time)",
+          "update_time_evening": "Fetch time 3 (local time)",
           "vat_rate": "VAT rate",
           "vat_entity": "VAT rate from an entity (optional)",
           "vat_tariff_types": "Add VAT to these tariff types",
@@ -56,7 +71,8 @@
         },
         "data_description": {
           "update_time": "The first fetch of the day.",
-          "update_time_pm": "The second fetch. Most suppliers publish tomorrow's prices in the afternoon, so a morning-only fetch would never see them.",
+          "update_time_pm": "Most suppliers publish tomorrow's prices in the afternoon. While they are still missing after this time, the integration keeps asking at growing intervals.",
+          "update_time_evening": "An extra fetch for suppliers that publish late.",
           "vat_rate": "The API publishes net prices. This rate is added on top of every price, statistic and chart attribute. Leave it at 0 to show the prices exactly as the supplier sends them.",
           "vat_entity": "Read the rate from this entity's state instead - an input_number, a number or a sensor holding the percentage. Useful when the rate changes: one entity write instead of a reconfiguration. While the entity has no usable state the last rate read from it stays in force, and before it ever had one the fixed rate above applies.",
           "vat_tariff_types": "Feed-in is left out by default: it is a credit to you, not a purchase, so a household that is not registered for VAT does not add it there.",

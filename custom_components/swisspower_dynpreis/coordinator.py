@@ -2,7 +2,7 @@
 
 Two clocks drive this integration and they are deliberately separate:
 
-* A fetch clock decides when to talk to the API. It is anchored on the two
+* A fetch clock decides when to talk to the API. It is anchored on the three
   configured daily times, escalates after a failure, and keeps looking for
   tomorrow's prices once the afternoon anchor has passed.
 * A render clock decides when to recompute entity state from the price curve
@@ -49,11 +49,13 @@ from .const import (
     CONF_TOKEN,
     CONF_UPDATE_TIME,
     CONF_UPDATE_TIME_PM,
+    CONF_UPDATE_TIME_EVENING,
     CONF_VAT_ENTITY,
     CONF_VAT_RATE,
     CONF_VAT_TARIFF_TYPES,
     DEFAULT_UPDATE_TIME,
     DEFAULT_UPDATE_TIME_PM,
+    DEFAULT_UPDATE_TIME_EVENING,
     DEFAULT_VAT_RATE,
     DOMAIN,
     HUNT_MINUTES,
@@ -96,6 +98,9 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._update_time = _coerce_time(options.get(CONF_UPDATE_TIME, DEFAULT_UPDATE_TIME))
         self._update_time_pm = _coerce_time(
             options.get(CONF_UPDATE_TIME_PM, DEFAULT_UPDATE_TIME_PM)
+        )
+        self._update_time_evening = _coerce_time(
+            options.get(CONF_UPDATE_TIME_EVENING, DEFAULT_UPDATE_TIME_EVENING)
         )
         self._query_year = _coerce_year(options.get(CONF_QUERY_YEAR))
 
@@ -175,9 +180,17 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
             )
 
-        for anchor in (self._update_time, self._update_time_pm):
-            if anchor is None:
+        anchors: set[time] = set()
+        for anchor in (
+            self._update_time,
+            self._update_time_pm,
+            self._update_time_evening,
+        ):
+            # Two fields set to the same time are one anchor, not two requests
+            # in the same second.
+            if anchor is None or anchor in anchors:
                 continue
+            anchors.add(anchor)
             entry.async_on_unload(
                 async_track_time_change(
                     hass,
@@ -358,7 +371,7 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_refresh_now(self) -> None:
         """Fetch immediately, from the top of both ladders.
 
-        Shared by the two daily anchors and by the manual refresh button, which
+        Shared by the daily anchors and by the manual refresh button, which
         want exactly the same thing: ask now, and treat it as a fresh start
         rather than as one more step of whatever schedule is currently running.
 

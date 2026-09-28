@@ -67,10 +67,10 @@ async def test_the_request_window_spans_the_configured_days(
     assert dt_util.as_local(call["start"]).hour == 0
 
 
-async def test_healthy_day_hits_the_api_twice(
+async def test_healthy_day_hits_the_api_three_times(
     hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
 ) -> None:
-    """With both days published, only the two daily anchors fetch."""
+    """With both days published, only the three daily anchors fetch."""
     await set_time_zone(hass)
     today = date(2026, 9, 7)
     api.publish(today, day_slots(today, [0.20] * 24))
@@ -80,10 +80,10 @@ async def test_healthy_day_hits_the_api_twice(
     await setup_integration(hass, make_entry(update_time="06:00"))
     calls_after_setup = api.call_count
 
-    # Through the whole day: the 06:00 and 14:00 anchors, nothing else.
+    # Through the whole day: the 06:00, 14:00 and 18:30 anchors, nothing else.
     await advance(hass, freezer, timedelta(hours=23), step=timedelta(minutes=10))
 
-    assert api.call_count - calls_after_setup == 2, [
+    assert api.call_count - calls_after_setup == 3, [
         str(call["start"]) for call in api.calls
     ]
 
@@ -127,7 +127,8 @@ async def test_hunting_stops_once_tomorrow_arrives(
     calls_when_complete = api.call_count
     await advance(hass, freezer, timedelta(hours=5), step=timedelta(minutes=10))
 
-    assert api.call_count == calls_when_complete, (
+    # 15:30 to 20:30: the 18:30 anchor, and no hunt around it.
+    assert api.call_count == calls_when_complete + 1, (
         "hunting must stop once tomorrow is published"
     )
 
@@ -147,8 +148,9 @@ async def test_hunting_is_bounded_when_tomorrow_never_arrives(
     await advance(hass, freezer, timedelta(hours=10), step=timedelta(minutes=5))
 
     hunts = api.call_count - calls_after_setup
-    # One afternoon anchor plus at most the escalating hunt schedule.
-    assert hunts <= 1 + len(HUNT_MINUTES), hunts
+    # The afternoon and the evening anchor, each starting the escalating hunt
+    # schedule from the top, and nothing beyond that.
+    assert hunts <= 2 * (1 + len(HUNT_MINUTES)), hunts
     assert hunts >= 2, "the afternoon anchor plus at least one hunt must have run"
 
 
@@ -239,12 +241,13 @@ async def test_query_year_uses_anchors_only_and_never_schedules_the_past(
     target = coordinator._next_render_instant(now, coordinator.data)
     assert target > now, "the render timer must never be armed in the past"
 
-    # 13:30 to 21:30 crosses the afternoon anchor, which must still fire once -
-    # but nothing beyond it, because tomorrow will never look complete in a
-    # rewritten year and hunting would otherwise run to its cap every day.
+    # 13:30 to 21:30 crosses the afternoon and the evening anchor, which must
+    # still fire once each - but nothing beyond them, because tomorrow will
+    # never look complete in a rewritten year and hunting would otherwise run
+    # to its cap every day.
     calls_after_setup = api.call_count
     await advance(hass, freezer, timedelta(hours=8), step=timedelta(minutes=10))
-    assert api.call_count == calls_after_setup + 1
+    assert api.call_count == calls_after_setup + 2
 
 
 async def test_render_target_is_the_next_slot_start_then_midnight(
@@ -435,8 +438,9 @@ async def test_missing_today_ladder_is_bounded(
     await advance(hass, freezer, timedelta(hours=12), step=timedelta(minutes=5))
 
     attempts = api.call_count - calls_after_setup
-    # The today ladder, plus the afternoon anchor which restarts it once.
-    assert attempts <= 2 * len(TODAY_HUNT_MINUTES) + 1, attempts
+    # The today ladder, plus the afternoon and the evening anchor, which
+    # restart it once each.
+    assert attempts <= 3 * len(TODAY_HUNT_MINUTES) + 2, attempts
 
 
 def _response_error(

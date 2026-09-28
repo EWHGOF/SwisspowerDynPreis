@@ -37,6 +37,10 @@ Je ausgewähltem Typ entsteht ein eigener Satz Entities, und jeder Typ ist eine
 eigene API-Abfrage pro Abruf. Es lohnt sich also, nur die Typen zu wählen, die
 der Energieversorger auch liefert.
 
+Im letzten Schritt werden die drei täglichen **Abfragezeiten** (lokale Zeit)
+festgelegt, zu denen die API abgefragt wird. Vorgeschlagen sind 01:00, 14:00
+und 18:30; die Zeiten lassen sich später in den [Optionen](#optionen) ändern.
+
 ## Entities
 
 Für jeden ausgewählten Tariftyp werden Entities in zwei Domains erstellt, dazu
@@ -469,32 +473,41 @@ Dasselbe gilt für einen unplausiblen Wert: ein Zustand unter 0 oder über 100
 
 ## Optionen
 
-In den Optionen werden zwei tägliche Abrufzeiten (lokale Zeit) definiert:
+In den Optionen werden die drei täglichen Abfragezeiten (lokale Zeit) definiert,
+die schon bei der Einrichtung abgefragt werden:
 
-- **Abrufzeit** (Standard 06:00): der Morgen-Abruf.
-- **Abrufzeit nachmittags** (Standard 14:00): der Nachmittags-Abruf.
+- **Abfragezeit 1** (Standard 01:00): der erste Abruf des Tages.
+- **Abfragezeit 2** (Standard 14:00): der Nachmittags-Abruf. Ab dieser Zeit wird
+  nach fehlenden Preisen für morgen nachgefragt (siehe unten).
+- **Abfragezeit 3** (Standard 18:30): ein zusätzlicher Abruf für
+  Energieversorger, die spät publizieren.
 
-Zwei Zeitpunkte sind nötig, weil die meisten Energieversorger die Preise für
-den Folgetag erst am Nachmittag publizieren. Ein reiner Morgen-Abruf kann sie
-also nie sehen, und alle «morgen»-Sensoren bleiben leer.
+Ein Abruf am Nachmittag ist nötig, weil die meisten Energieversorger die Preise
+für den Folgetag erst dann publizieren. Ein reiner Morgen-Abruf kann sie also
+nie sehen, und alle «morgen»-Sensoren bleiben leer. Zwei Felder mit derselben
+Zeit ergeben nur einen Abruf.
+
+Installationen, deren Optionen vor dieser Version nie gespeichert wurden,
+übernehmen die neuen Standardzeiten (01:00, 14:00, 18:30). Wer in den Optionen
+schon Zeiten gespeichert hat, behält diese; Abfragezeit 3 kommt mit 18:30 dazu.
 
 Zusätzlich gilt:
 
-- Sind die Preise für morgen nach dem Nachmittags-Abruf noch nicht vollständig
+- Sind die Preise für morgen nach Abfragezeit 2 noch nicht vollständig
   publiziert, wird in grösseren Abständen (30, 30, 60, 60, 120, 120 Minuten)
-  erneut nachgefragt und ab 23:00 bis zum nächsten Morgen-Abruf nicht mehr.
+  erneut nachgefragt und ab 23:00 bis zur nächsten Abfragezeit nicht mehr.
 - Fehlt der Preis für den aktuellen Zeitpunkt ganz (die API antwortet zwar,
   aber ohne Daten), wird unabhängig von der Tageszeit schneller nachgefragt
   (5, 10, 15, 30, 30, 60, 60, 120 Minuten).
 - Schlägt ein Abruf fehl, wird mit 1, 2, 5, 10 und 30 Minuten Abstand erneut
   versucht, maximal sechsmal. Danach wird die nächste Abrufzeit abgewartet;
   jede Abrufzeit beginnt wieder mit einer frischen Wiederholungsreihe.
-- Ein normaler Tag ergibt damit zwei API-Abfragen pro Tariftyp. Jeder Druck auf
+- Ein normaler Tag ergibt damit drei API-Abfragen pro Tariftyp. Jeder Druck auf
   [**Refresh now**](#manuell-abrufen) kommt dazu und setzt beide
   Wiederholungsreihen zurück.
 - **Testjahr** (optional) schreibt das Abfragejahr um und ist nur zum Testen
   gedacht. In diesem Modus wird nicht nach den Preisen für morgen nachgefragt,
-  es gelten nur die beiden Abrufzeiten.
+  es gelten nur die drei Abfragezeiten.
 - Die drei MWST-Felder stehen im selben Dialog und sind oben unter
   [MWST aufschlagen](#mwst-aufschlagen) beschrieben.
 
@@ -509,7 +522,7 @@ Assistant ist nicht nötig.
 
 Hinweis: Wird für die Integration in Home Assistant «Abfrage aktiviert»
 ausgeschaltet, entfallen die Wiederholungen (Nachfragen und Fehler-Retry), die
-beiden festen Abrufzeiten bleiben aber aktiv. Der **Refresh now**-Button
+drei festen Abfragezeiten bleiben aber aktiv. Der **Refresh now**-Button
 funktioniert ebenfalls weiter — er hängt nicht am Abrufintervall.
 
 ## Wenn etwas nicht stimmt
