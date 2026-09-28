@@ -35,6 +35,20 @@
         "data_description": {
           "tariff_types": "Je ausgewähltem Typ entsteht ein eigener Satz Entities, und jeder Typ ist eine eigene API-Abfrage pro Abruf. Standardmässig aktiv sind nur die Preis-Entities; die Zeitstempel-, Ein/Aus- und Diagnose-Entities werden inaktiv angelegt und lassen sich einzeln einschalten."
         }
+      },
+      "schedule": {
+        "title": "Abfragezeiten",
+        "description": "Die API wird dreimal täglich abgefragt, jeweils für ein Fenster über heute und die drei folgenden Tage. Die Zeiten lassen sich später in den Optionen ändern.",
+        "data": {
+          "update_time": "Abfragezeit 1 (lokale Zeit)",
+          "update_time_pm": "Abfragezeit 2 (lokale Zeit)",
+          "update_time_evening": "Abfragezeit 3 (lokale Zeit)"
+        },
+        "data_description": {
+          "update_time": "Der erste Abruf des Tages.",
+          "update_time_pm": "Die meisten Energieversorger publizieren die Preise für morgen am Nachmittag. Fehlen sie nach dieser Zeit noch, wird in grösseren Abständen erneut nachgefragt.",
+          "update_time_evening": "Ein zusätzlicher Abruf für Energieversorger, die spät publizieren."
+        }
       }
     },
     "error": {
@@ -45,10 +59,11 @@
     "step": {
       "init": {
         "title": "Swisspower DynPreis Optionen",
-        "description": "Die API wird an der Morgen- und an der Nachmittagszeit abgefragt, jeweils für ein Fenster über heute und die drei folgenden Tage. Die Preise für morgen werden von den meisten Energieversorgern erst nachmittags publiziert; fehlen sie noch, wird nach der Nachmittagszeit in grösseren Abständen erneut nachgefragt. Der Button «Refresh now» löst sofort einen Abruf ausserhalb dieses Zeitplans aus.",
+        "description": "Die API wird zu den drei Abfragezeiten abgefragt, jeweils für ein Fenster über heute und die drei folgenden Tage. Die Preise für morgen werden von den meisten Energieversorgern erst nachmittags publiziert; fehlen sie noch, wird nach Abfragezeit 2 in grösseren Abständen erneut nachgefragt. Der Button «Refresh now» löst sofort einen Abruf ausserhalb dieses Zeitplans aus.",
         "data": {
-          "update_time": "Abrufzeit morgens (lokale Zeit)",
-          "update_time_pm": "Abrufzeit nachmittags (lokale Zeit)",
+          "update_time": "Abfragezeit 1 (lokale Zeit)",
+          "update_time_pm": "Abfragezeit 2 (lokale Zeit)",
+          "update_time_evening": "Abfragezeit 3 (lokale Zeit)",
           "vat_rate": "MWST-Satz",
           "vat_entity": "MWST-Satz aus einer Entity (optional)",
           "vat_tariff_types": "MWST auf diese Tariftypen aufschlagen",
@@ -56,7 +71,8 @@
         },
         "data_description": {
           "update_time": "Der erste Abruf des Tages.",
-          "update_time_pm": "Der zweite Abruf. Die meisten Energieversorger publizieren die Preise für morgen erst am Nachmittag; ein reiner Morgen-Abruf sieht sie also nie.",
+          "update_time_pm": "Die meisten Energieversorger publizieren die Preise für morgen am Nachmittag. Fehlen sie nach dieser Zeit noch, wird in grösseren Abständen erneut nachgefragt.",
+          "update_time_evening": "Ein zusätzlicher Abruf für Energieversorger, die spät publizieren.",
           "vat_rate": "Die API liefert Preise ohne MWST. Dieser Satz wird auf jeden Preis, jede Statistik und jedes Diagramm-Attribut aufgeschlagen. Bei 0 bleiben die Preise genau so, wie der Energieversorger sie sendet.",
           "vat_entity": "Den Satz stattdessen aus dem Zustand dieser Entity lesen - ein input_number, eine number oder ein sensor mit dem Prozentwert. Praktisch, wenn sich der Satz ändert: eine Entity-Änderung statt einer Neukonfiguration. Solange die Entity keinen brauchbaren Zustand hat, gilt der zuletzt gelesene Satz weiter; bevor sie je einen hatte, gilt der feste Satz oben.",
           "vat_tariff_types": "Die Rückvergütung ist standardmässig ausgenommen: sie ist eine Gutschrift an dich und kein Einkauf, ein nicht MWST-pflichtiger Haushalt schlägt dort also keine MWST auf.",

@@ -23,6 +23,7 @@ from .const import (
     CONF_TOKEN,
     CONF_UPDATE_TIME,
     CONF_UPDATE_TIME_PM,
+    CONF_UPDATE_TIME_EVENING,
     CONF_QUERY_YEAR,
     CONF_VAT_ENTITY,
     CONF_VAT_RATE,
@@ -30,6 +31,7 @@ from .const import (
     DEFAULT_NAME,
     DEFAULT_UPDATE_TIME,
     DEFAULT_UPDATE_TIME_PM,
+    DEFAULT_UPDATE_TIME_EVENING,
     DEFAULT_VAT_RATE,
     DOMAIN,
     MAX_VAT_RATE,
@@ -39,6 +41,18 @@ from .const import (
     VAT_EXEMPT_TARIFF_TYPES,
 )
 from .vat import parse_vat_rate
+
+# The daily fetch times, in the order the forms show them.
+UPDATE_TIME_KEYS = (
+    (CONF_UPDATE_TIME, DEFAULT_UPDATE_TIME),
+    (CONF_UPDATE_TIME_PM, DEFAULT_UPDATE_TIME_PM),
+    (CONF_UPDATE_TIME_EVENING, DEFAULT_UPDATE_TIME_EVENING),
+)
+
+
+def _time_default(value: str) -> str:
+    """Return a time the way the TimeSelector hands it back."""
+    return dt_util.parse_time(value).strftime("%H:%M:%S")
 
 
 class SwisspowerDynPreisConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -81,17 +95,15 @@ class SwisspowerDynPreisConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            return self.async_create_entry(
-                title=self._name,
-                data={
-                    CONF_NAME: self._name,
-                    CONF_METHOD: METHOD_METERING_CODE,
-                    CONF_API_URL: self._api_url,
-                    CONF_METERING_CODE: user_input[CONF_METERING_CODE],
-                    CONF_TOKEN: user_input[CONF_TOKEN],
-                    CONF_TARIFF_TYPES: user_input[CONF_TARIFF_TYPES],
-                },
-            )
+            self._data = {
+                CONF_NAME: self._name,
+                CONF_METHOD: METHOD_METERING_CODE,
+                CONF_API_URL: self._api_url,
+                CONF_METERING_CODE: user_input[CONF_METERING_CODE],
+                CONF_TOKEN: user_input[CONF_TOKEN],
+                CONF_TARIFF_TYPES: user_input[CONF_TARIFF_TYPES],
+            }
+            return await self.async_step_schedule()
 
         schema = vol.Schema(
             {
@@ -106,16 +118,14 @@ class SwisspowerDynPreisConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            return self.async_create_entry(
-                title=self._name,
-                data={
-                    CONF_NAME: self._name,
-                    CONF_METHOD: METHOD_TARIFF_NAME,
-                    CONF_API_URL: self._api_url,
-                    CONF_TARIFF_NAME: user_input[CONF_TARIFF_NAME],
-                    CONF_TARIFF_TYPES: user_input[CONF_TARIFF_TYPES],
-                },
-            )
+            self._data = {
+                CONF_NAME: self._name,
+                CONF_METHOD: METHOD_TARIFF_NAME,
+                CONF_API_URL: self._api_url,
+                CONF_TARIFF_NAME: user_input[CONF_TARIFF_NAME],
+                CONF_TARIFF_TYPES: user_input[CONF_TARIFF_TYPES],
+            }
+            return await self.async_step_schedule()
 
         schema = vol.Schema(
             {
@@ -124,6 +134,27 @@ class SwisspowerDynPreisConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
         return self.async_show_form(step_id="tariff_name", data_schema=schema, errors=errors)
+
+    async def async_step_schedule(self, user_input: dict[str, Any] | None = None):
+        """Ask for the daily fetch times.
+
+        They go into the options rather than the data: the coordinator reads
+        them from there, and the options flow edits them there later on.
+        """
+        if user_input is not None:
+            return self.async_create_entry(
+                title=self._name,
+                data=self._data,
+                options={key: user_input[key] for key, _ in UPDATE_TIME_KEYS},
+            )
+
+        schema = vol.Schema(
+            {
+                vol.Required(key, default=_time_default(default)): selector.TimeSelector()
+                for key, default in UPDATE_TIME_KEYS
+            }
+        )
+        return self.async_show_form(step_id="schedule", data_schema=schema)
 
     @staticmethod
     def async_get_options_flow(config_entry: config_entries.ConfigEntry):
@@ -139,11 +170,6 @@ class SwisspowerDynPreisOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
-
-        default_update_time = self._option_time(CONF_UPDATE_TIME, DEFAULT_UPDATE_TIME)
-        default_update_time_pm = self._option_time(
-            CONF_UPDATE_TIME_PM, DEFAULT_UPDATE_TIME_PM
-        )
 
         query_year = self._config_entry.options.get(CONF_QUERY_YEAR)
         default_year = "" if query_year in (None, "") else str(query_year)
@@ -162,14 +188,13 @@ class SwisspowerDynPreisOptionsFlowHandler(config_entries.OptionsFlow):
         # options replaces the whole dict, so a missing key gets dropped.
         schema = vol.Schema(
             {
-                vol.Optional(
-                    CONF_UPDATE_TIME,
-                    default=default_update_time.strftime("%H:%M:%S"),
-                ): selector.TimeSelector(),
-                vol.Optional(
-                    CONF_UPDATE_TIME_PM,
-                    default=default_update_time_pm.strftime("%H:%M:%S"),
-                ): selector.TimeSelector(),
+                **{
+                    vol.Optional(
+                        key,
+                        default=self._option_time(key, default).strftime("%H:%M:%S"),
+                    ): selector.TimeSelector()
+                    for key, default in UPDATE_TIME_KEYS
+                },
                 vol.Optional(
                     CONF_VAT_RATE,
                     default=default_vat_rate,
