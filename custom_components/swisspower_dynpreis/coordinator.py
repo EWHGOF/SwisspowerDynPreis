@@ -37,7 +37,6 @@ from homeassistant.util import dt as dt_util
 
 from .api import SwisspowerDynPreisApiClient
 from .const import (
-    API_BASE,
     BACKOFF_MAX_TRIES,
     BACKOFF_MINUTES,
     CONF_API_URL,
@@ -65,6 +64,7 @@ from .const import (
     TOMORROW_COVERAGE_RATIO,
     VAT_EXEMPT_TARIFF_TYPES,
     WINDOW_DAYS_FORWARD,
+    default_api_base,
 )
 from .pricing import find_current_slot, slot_bounds
 from .vat import parse_vat_rate, vat_multiplier
@@ -90,7 +90,7 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         self._entry = entry
         self._method = entry_data[CONF_METHOD]
-        self._api_url = entry_data.get(CONF_API_URL, API_BASE)
+        self._api_url = entry_data.get(CONF_API_URL) or default_api_base(self._method)
         self._metering_code = entry_data.get(CONF_METERING_CODE)
         self._tariff_name = entry_data.get(CONF_TARIFF_NAME)
         self._tariff_types = entry_data[CONF_TARIFF_TYPES]

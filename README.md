@@ -23,13 +23,29 @@ Ein Wizard führt durch die Konfiguration:
 - **Messpunktnummer** (Metering Code) und **Authentifizierungstoken** für den produktiven API-Zugriff oder
 - **Tarifname** (z. B. D1) ohne Token. 
 
+### API-URL
+
+Vorgegeben ist die **Innostrom API v2**:
+`https://portal.dynamische-stromtarife.ch/api/v2`. Abgefragt wird dort
+`/metering_code` mit Messpunktnummer und Token.
+
+Die v2 dokumentiert keine Abfrage über den Tarifnamen. Wer über den
+**Tarifnamen** einrichtet und das Feld auf der Vorgabe lässt, bekommt deshalb
+weiterhin den bisherigen v1-Endpunkt `https://esit.code-fabrik.ch/api/v1`.
+Eine selbst eingetragene URL wird immer unverändert übernommen.
+
+Bestehende Installationen behalten die URL, mit der sie eingerichtet wurden —
+sie ist Teil der Konfiguration und wird nicht automatisch umgestellt. Wer auf
+die v2 wechseln will, entfernt die Integration und richtet sie mit der neuen
+Vorgabe neu ein.
+
 Zusätzlich können die gewünschten Tariftypen ausgewählt werden:
 
 | Tariftyp | Bedeutung |
 | --- | --- |
 | `electricity` | Der Preis für die Energie |
 | `grid` | Netznutzung (Arbeitspreis und allfälliger [Leistungstarif](#leistungstarif)) |
-| `dso` | noch nicht beschrieben — siehe [API-Dokumentation](https://esit.code-fabrik.ch/doc_scalar) |
+| `dso` | Netz + Abgaben |
 | `integrated` | Die Summe aller Bestandteile, inklusive Abgaben |
 | `feed_in` | Der Preis für die Rückvergütung von erzeugter Energie |
 
@@ -143,6 +159,7 @@ nicht:
 | Neuer Button `Refresh now` | kommt beim ersten Start dazu, aktiv |
 | Neue Diagnose-Entity `API response` | kommt beim ersten Start dazu, inaktiv |
 | [MWST aufschlagen](#mwst-aufschlagen) | keine; ohne konfigurierten Satz bleibt jeder Preis der Nettopreis der API |
+| [API v2 als Vorgabe](#api-url) | keine; die gespeicherte URL bleibt, die neue Vorgabe gilt nur für neue Einrichtungen |
 | [Leistungstarif](#leistungstarif) | Sensor `… grid power Current price` heisst neu **Power tariff** und hat die Einheit CHF/kW/month statt fälschlich CHF/kWh; Entity-ID und Verlauf bleiben. Zwei Durchschnitts-Sensoren kommen dazu, aktiv |
 
 Die Binärsensoren lagen früher fälschlich in der `sensor`-Domain (mit dem
@@ -632,10 +649,13 @@ Log-URLs maskiert.
 
 ## Weiterführende Links 
 
-Die API-Dokumentation findet sich unter:
+Server der Innostrom API v2 (Vorgabe):
+https://portal.dynamische-stromtarife.ch/api/v2
+
+Dokumentation der bisherigen v1-API:
 https://esit.code-fabrik.ch/doc_scalar
 
-Für Tests (z. B. bei von Codex generiertem Code) kann folgende Basis-URL verwendet werden:
+Für Tests mit der v1-API kann folgende Basis-URL verwendet werden:
 https://esit-test.code-fabrik.ch/api/v1
 
 übersicht EVU mit Dynamischen Tarifen:

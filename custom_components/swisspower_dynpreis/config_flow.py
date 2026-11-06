@@ -39,6 +39,7 @@ from .const import (
     METHOD_TARIFF_NAME,
     TARIFF_TYPES,
     VAT_EXEMPT_TARIFF_TYPES,
+    default_api_base,
 )
 from .vat import parse_vat_rate
 
@@ -68,6 +69,12 @@ class SwisspowerDynPreisConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._name = user_input.get(CONF_NAME, DEFAULT_NAME)
             try:
                 self._api_url = cv.url(user_input[CONF_API_URL])
+                # The default points at API v2, which has no tariff name
+                # endpoint. Left untouched, the field means "the default", and
+                # for a tariff name setup that is the v1 endpoint. A URL the
+                # user typed is kept as it is.
+                if self._api_url.rstrip("/") == API_BASE:
+                    self._api_url = default_api_base(self._method)
             except vol.Invalid:
                 errors[CONF_API_URL] = "invalid_url"
             else:

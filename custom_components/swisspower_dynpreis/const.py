@@ -22,7 +22,24 @@ METHOD_TARIFF_NAME = "tariff_name"
 
 TARIFF_TYPES = ["electricity", "grid", "dso", "integrated", "feed_in"]
 
-API_BASE = "https://esit.code-fabrik.ch/api/v1"
+# Innostrom API v2: GET /v2/metering_code with the customer's bearer token.
+# Its documentation is the one that describes the power tariff (see
+# COMPONENT_POWER below).
+API_BASE = "https://portal.dynamische-stromtarife.ch/api/v2"
+
+# The v1 endpoint the integration used before. API v2 documents no
+# /tariff_name endpoint, so a setup by tariff name - which needs no token -
+# stays here when the URL field is left at its default. Setups that stored this
+# URL keep it: the URL is part of the config entry and is not migrated.
+API_BASE_V1 = "https://esit.code-fabrik.ch/api/v1"
+
+
+def default_api_base(method: str | None) -> str:
+    """Return the endpoint a request method uses when no URL was chosen."""
+    if method == METHOD_TARIFF_NAME:
+        return API_BASE_V1
+    return API_BASE
+
 
 # Price components and units. Every tariff type carries its energy price as a
 # component "work" in CHF per kWh. Where the grid operator charges a power

@@ -10,7 +10,7 @@
           "method": "Request method"
         },
         "data_description": {
-          "api_url": "Leave the default unless your supplier publishes on a different endpoint."
+          "api_url": "Leave the default unless your supplier publishes on a different endpoint. The default is Innostrom API v2; setting up by tariff name keeps using the v1 endpoint, because v2 has no tariff name query."
         }
       },
       "metering": {
