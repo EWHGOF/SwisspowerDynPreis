@@ -23,6 +23,21 @@ METHOD_TARIFF_NAME = "tariff_name"
 TARIFF_TYPES = ["electricity", "grid", "dso", "integrated", "feed_in"]
 
 API_BASE = "https://esit.code-fabrik.ch/api/v1"
+
+# Price components and units. Every tariff type carries its energy price as a
+# component "work" in CHF per kWh. Where the grid operator charges a power
+# tariff (Leistungstarif), the API adds a second element to the "grid" list
+# with the component "power" and the unit CHF per kW and month. It is never
+# summed into "dso" or "integrated", and it is not a price per kWh: it must
+# never be read as one, and never be averaged together with the work price.
+COMPONENT_WORK = "work"
+COMPONENT_POWER = "power"
+
+# The units as shown in Home Assistant. The API spells them "CHF_kWh" and
+# "CHF_kW_m" (older answers used "CHF/kWh"); pricing.normalize_unit maps every
+# known spelling onto these two.
+UNIT_ENERGY_PRICE = "CHF/kWh"
+UNIT_POWER_PRICE = "CHF/kW/month"
 # The three daily fetch times, asked for during setup and editable in the
 # options. The second one also gates the hunt for tomorrow's prices (see
 # _hunt_interval), because day-ahead prices are published in the afternoon;

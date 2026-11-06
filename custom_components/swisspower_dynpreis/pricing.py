@@ -8,6 +8,12 @@ from typing import Any
 
 from homeassistant.util import dt as dt_util
 
+from .const import (
+    COMPONENT_POWER,
+    COMPONENT_WORK,
+    UNIT_ENERGY_PRICE,
+    UNIT_POWER_PRICE,
+)
 from .vat import apply_multiplier
 
 
@@ -73,27 +79,76 @@ def extract_slot_value(
     return apply_multiplier(_raw_slot_value(slot, tariff_type, component), multiplier)
 
 
+def normalize_unit(unit: Any) -> str | None:
+    """Map the API's spelling of a unit onto the one Home Assistant shows.
+
+    The API writes "CHF_kWh" and "CHF_kW_m"; earlier answers and the test
+    environment wrote "CHF/kWh". A unit this integration does not know is handed
+    back unchanged rather than guessed at.
+    """
+    if not isinstance(unit, str):
+        return None
+    key = unit.strip().lower().replace("_", "/").replace(" ", "")
+    if key == "chf/kwh":
+        return UNIT_ENERGY_PRICE
+    if key in ("chf/kw/m", "chf/kw/month"):
+        return UNIT_POWER_PRICE
+    return unit
+
+
+def is_power_price(price: dict[str, Any]) -> bool:
+    """Return whether a price element is a power tariff rather than an energy price.
+
+    Recognized by its component or by its unit, so neither a missing unit nor a
+    renamed component turns a CHF/kW/month figure into a CHF/kWh price.
+    """
+    return (
+        price.get("component") == COMPONENT_POWER
+        or normalize_unit(price.get("unit")) == UNIT_POWER_PRICE
+    )
+
+
 def _raw_slot_value(
     slot: dict[str, Any],
     tariff_type: str,
     component: str | None,
 ) -> float | None:
-    """Return the slot value exactly as the API sent it."""
+    """Return the slot value exactly as the API sent it.
+
+    ``component`` None asks for the energy price of the tariff type - the one
+    every un-suffixed entity, statistic and binary sensor is about. That is the
+    first element that is not a power tariff, preferring one that declares an
+    energy unit. Until the API started sending the power tariff alongside the
+    work price, "the first element with a value" was the same thing; now it is
+    not, and the power element must never be returned here, whichever position
+    the API puts it in.
+
+    A named component is matched exactly, so ``component="power"`` is how the
+    power tariff itself is read.
+    """
     if component is None and isinstance(slot.get("value"), (int, float)):
-        return slot.get("value")
+        if not is_power_price(slot):
+            return slot.get("value")
     prices = slot.get(tariff_type)
     if isinstance(prices, list):
-        for price in prices:
-            if not isinstance(price, dict):
-                continue
-            if component is not None and price.get("component") != component:
-                continue
-            if price.get("unit") == "CHF/kWh" and price.get("value") is not None:
-                return price.get("value")
-            if price.get("value") is not None:
-                return price.get("value")
-    if slot.get("unit") == "CHF/kWh":
-        if component is None and slot.get("component") in (None, "work"):
+        candidates = [
+            price
+            for price in prices
+            if isinstance(price, dict) and price.get("value") is not None
+        ]
+        if component is not None:
+            for price in candidates:
+                if price.get("component") == component:
+                    return price.get("value")
+        else:
+            energy = [price for price in candidates if not is_power_price(price)]
+            for price in energy:
+                if normalize_unit(price.get("unit")) == UNIT_ENERGY_PRICE:
+                    return price.get("value")
+            if energy:
+                return energy[0].get("value")
+    if normalize_unit(slot.get("unit")) == UNIT_ENERGY_PRICE:
+        if component is None and slot.get("component") in (None, COMPONENT_WORK):
             return slot.get("value")
         if component is not None and slot.get("component") == component:
             return slot.get("value")
