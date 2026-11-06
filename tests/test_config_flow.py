@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import date, timedelta
 from unittest.mock import patch
 
+import pytest
+
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
@@ -13,6 +15,7 @@ from homeassistant.data_entry_flow import FlowResultType
 
 from custom_components.swisspower_dynpreis.const import (
     API_BASE,
+    API_BASE_V1,
     CONF_API_URL,
     CONF_METERING_CODE,
     CONF_METHOD,
@@ -25,6 +28,7 @@ from custom_components.swisspower_dynpreis.const import (
     DOMAIN,
     METHOD_METERING_CODE,
     METHOD_TARIFF_NAME,
+    default_api_base,
 )
 
 from .helpers import (
@@ -202,3 +206,193 @@ async def test_the_same_time_twice_is_one_fetch(
 
     await advance(hass, freezer, timedelta(hours=23), step=timedelta(minutes=10))
     assert api.call_count - calls_after_setup == 2
+
+
+# ----------------------------------------------------------------------
+# Which endpoint a setup ends up with
+# ----------------------------------------------------------------------
+
+
+async def _finish(hass: HomeAssistant, result, step_input: dict):
+    """Complete the method step and the schedule step, returning the entry."""
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input=step_input
+    )
+    assert result["step_id"] == "schedule"
+    with patch(
+        "custom_components.swisspower_dynpreis.async_setup_entry", return_value=True
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={}
+        )
+        await hass.async_block_till_done()
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    return result["result"]
+
+
+METERING_INPUT = {
+    CONF_METERING_CODE: "CH123",
+    CONF_TOKEN: "secret",
+    CONF_TARIFF_TYPES: ["electricity"],
+}
+TARIFF_NAME_INPUT = {CONF_TARIFF_NAME: "D1", CONF_TARIFF_TYPES: ["electricity"]}
+
+
+async def test_the_url_field_defaults_to_api_v2(hass: HomeAssistant) -> None:
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    assert _defaults(result)[CONF_API_URL] == API_BASE
+    assert API_BASE == "https://portal.dynamische-stromtarife.ch/api/v2"
+
+
+async def test_a_metering_code_setup_stores_api_v2(hass: HomeAssistant) -> None:
+    entry = await _finish(
+        hass, await _start(hass, METHOD_METERING_CODE), METERING_INPUT
+    )
+    assert entry.data[CONF_API_URL] == API_BASE
+
+
+async def test_a_tariff_name_setup_left_at_the_default_stores_v1(
+    hass: HomeAssistant,
+) -> None:
+    """API v2 has no tariff name endpoint, so the default must not send it there."""
+    entry = await _finish(
+        hass, await _start(hass, METHOD_TARIFF_NAME), TARIFF_NAME_INPUT
+    )
+    assert entry.data[CONF_API_URL] == API_BASE_V1
+
+
+@pytest.mark.parametrize(
+    ("method", "step_input"),
+    [(METHOD_METERING_CODE, METERING_INPUT), (METHOD_TARIFF_NAME, TARIFF_NAME_INPUT)],
+)
+async def test_a_typed_url_is_kept_as_it_is(
+    hass: HomeAssistant, method: str, step_input: dict
+) -> None:
+    custom = "https://esit-test.code-fabrik.ch/api/v1"
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={CONF_NAME: "Test", CONF_API_URL: custom, CONF_METHOD: method},
+    )
+    entry = await _finish(hass, result, step_input)
+    assert entry.data[CONF_API_URL] == custom
+
+
+@pytest.mark.parametrize(
+    ("method", "expected"),
+    [(METHOD_METERING_CODE, API_BASE), (METHOD_TARIFF_NAME, API_BASE_V1)],
+)
+def test_the_form_default_resolves_per_method(method: str, expected: str) -> None:
+    assert default_api_base(method) == expected
+
+
+async def _requested_base(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    data: dict,
+) -> str:
+    """Set the entry up for real and return the base URL its client asks.
+
+    Set up through Home Assistant rather than by building the coordinator by
+    hand: a hand-built one arms timers no unload ever cancels, which Home
+    Assistant 2024.3 reports as a lingering timer.
+    """
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    await set_time_zone(hass)
+    freezer.move_to(at(2026, 9, 7, 10, 30))
+    entry = MockConfigEntry(domain=DOMAIN, title="Test", data=data)
+    await setup_integration(hass, entry)
+    return hass.data[DOMAIN][entry.entry_id]._client._api_base
+
+
+@pytest.mark.parametrize("method", [METHOD_METERING_CODE, METHOD_TARIFF_NAME])
+async def test_an_entry_without_a_stored_url_stays_on_v1(
+    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory, method: str
+) -> None:
+    """Entries from before the URL field have none stored, and were v1 entries.
+
+    Resolving them to the new default would move a metering code entry, token
+    and all, to another host on update without anyone having asked for it.
+    """
+    base = await _requested_base(
+        hass,
+        freezer,
+        {
+            CONF_NAME: "Test",
+            CONF_METHOD: method,
+            CONF_METERING_CODE: "CH123",
+            CONF_TOKEN: "secret",
+            CONF_TARIFF_NAME: "D1",
+            CONF_TARIFF_TYPES: ["electricity"],
+        },
+    )
+    assert base == API_BASE_V1
+
+
+async def test_a_stored_url_is_used_as_it_is(
+    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
+) -> None:
+    base = await _requested_base(
+        hass,
+        freezer,
+        {
+            CONF_NAME: "Test",
+            CONF_METHOD: METHOD_METERING_CODE,
+            CONF_API_URL: API_BASE,
+            CONF_METERING_CODE: "CH123",
+            CONF_TOKEN: "secret",
+            CONF_TARIFF_TYPES: ["electricity"],
+        },
+    )
+    assert base == API_BASE
+
+
+async def test_the_client_builds_the_v2_request(hass: HomeAssistant) -> None:
+    """GET {base}/metering_code, as the v2 documentation describes it."""
+    from datetime import datetime, timezone
+
+    from custom_components.swisspower_dynpreis.api import SwisspowerDynPreisApiClient
+
+    class _Response:
+        status = 200
+
+        async def text(self) -> str:
+            return '{"status": "ok", "prices": []}'
+
+        def raise_for_status(self) -> None:
+            return None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+    class _Session:
+        url = None
+        headers: dict = {}
+
+        def get(self, url, headers=None):
+            self.url = url
+            self.headers = dict(headers or {})
+            return _Response()
+
+    session = _Session()
+    client = SwisspowerDynPreisApiClient(session, METHOD_METERING_CODE, "secret")
+    await client.fetch_tariffs(
+        tariff_type="grid",
+        start=datetime(2026, 9, 7, tzinfo=timezone.utc),
+        end=datetime(2026, 9, 8, tzinfo=timezone.utc),
+        metering_code="CH123",
+    )
+    url = str(session.url)
+    assert url.startswith(
+        "https://portal.dynamische-stromtarife.ch/api/v2/metering_code?"
+    )
+    assert "metering_code=CH123" in url
+    assert session.headers["Authorization"] == "Bearer secret"

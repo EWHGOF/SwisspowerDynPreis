@@ -10,7 +10,7 @@
           "method": "Abrufmethode"
         },
         "data_description": {
-          "api_url": "Vorgabe nur ändern, wenn der Energieversorger einen anderen Endpunkt verwendet."
+          "api_url": "Vorgabe nur ändern, wenn der Energieversorger einen anderen Endpunkt verwendet. Vorgabe ist die Innostrom API v2; die Einrichtung über den Tarifnamen verwendet weiterhin den v1-Endpunkt, weil v2 keine Abfrage über den Tarifnamen kennt."
         }
       },
       "metering": {

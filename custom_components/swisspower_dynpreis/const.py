@@ -22,7 +22,40 @@ METHOD_TARIFF_NAME = "tariff_name"
 
 TARIFF_TYPES = ["electricity", "grid", "dso", "integrated", "feed_in"]
 
-API_BASE = "https://esit.code-fabrik.ch/api/v1"
+# Innostrom API v2: GET /v2/metering_code with the customer's bearer token.
+# Its documentation is the one that describes the power tariff (see
+# COMPONENT_POWER below).
+API_BASE = "https://portal.dynamische-stromtarife.ch/api/v2"
+
+# The v1 endpoint the integration used before. API v2 documents no
+# /tariff_name endpoint, so a setup by tariff name - which needs no token -
+# stays here when the URL field is left at its default. Setups that stored this
+# URL keep it: the URL is part of the config entry and is not migrated. Entries
+# from before the URL field existed have none stored and stay on v1 as well.
+API_BASE_V1 = "https://esit.code-fabrik.ch/api/v1"
+
+
+def default_api_base(method: str | None) -> str:
+    """Return the endpoint the setup form resolves its default URL to."""
+    if method == METHOD_TARIFF_NAME:
+        return API_BASE_V1
+    return API_BASE
+
+
+# Price components and units. Every tariff type carries its energy price as a
+# component "work" in CHF per kWh. Where the grid operator charges a power
+# tariff (Leistungstarif), the API adds a second element to the "grid" list
+# with the component "power" and the unit CHF per kW and month. It is never
+# summed into "dso" or "integrated", and it is not a price per kWh: it must
+# never be read as one, and never be averaged together with the work price.
+COMPONENT_WORK = "work"
+COMPONENT_POWER = "power"
+
+# The units as shown in Home Assistant. The API spells them "CHF_kWh" and
+# "CHF_kW_m" (older answers used "CHF/kWh"); pricing.normalize_unit maps every
+# known spelling onto these two.
+UNIT_ENERGY_PRICE = "CHF/kWh"
+UNIT_POWER_PRICE = "CHF/kW/month"
 # The three daily fetch times, asked for during setup and editable in the
 # options. The second one also gates the hunt for tomorrow's prices (see
 # _hunt_interval), because day-ahead prices are published in the afternoon;

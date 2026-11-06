@@ -17,15 +17,24 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    COMPONENT_POWER,
     CONF_TARIFF_TYPES,
     DEFAULT_NAME,
     DOMAIN,
     TOMORROW_COVERAGE_RATIO,
+    UNIT_ENERGY_PRICE,
+    UNIT_POWER_PRICE,
     WINDOW_DAYS_FORWARD,
 )
 from .coordinator import SwisspowerDynPreisCoordinator
 from .entity import SwisspowerDynPreisEntity, device_info_for
-from .pricing import extract_slot_value, find_current_slot, normalize_price_slots
+from .pricing import (
+    extract_slot_value,
+    find_current_slot,
+    is_power_price,
+    normalize_price_slots,
+    normalize_unit,
+)
 from .stats import (
     average_for_day,
     day_is_complete,
@@ -146,6 +155,38 @@ SENSOR_DESCRIPTIONS: tuple[SensorDescription, ...] = _DERIVED_DESCRIPTIONS + tup
     _window_description(*row) for row in _WINDOW_SENSORS
 )
 
+# The statistics a power tariff (Leistungstarif) gets on top of its current
+# value. Only the daily averages, with min/max in the attributes: the
+# cheapest-window and percentile entities above answer "when is energy cheap",
+# a question about CHF/kWh that a CHF/kW/month figure cannot answer, and they
+# keep reading the work price. The full curve is on the current value sensor.
+POWER_SENSOR_DESCRIPTIONS: tuple[SensorDescription, ...] = (
+    SensorDescription(
+        key="avg_today",
+        name="Power tariff average today",
+        enabled_default=True,
+        unit=UNIT_POWER_PRICE,
+        value_fn=lambda slots, now, tariff, component, multiplier: average_for_day(
+            slots, now, 0, tariff, component, multiplier
+        ),
+        extra_fn=lambda slots, now, tariff, component, multiplier: day_stats(
+            slots, now, 0, tariff, component, multiplier
+        ),
+    ),
+    SensorDescription(
+        key="avg_tomorrow",
+        name="Power tariff average tomorrow",
+        enabled_default=True,
+        unit=UNIT_POWER_PRICE,
+        value_fn=lambda slots, now, tariff, component, multiplier: average_for_day(
+            slots, now, 1, tariff, component, multiplier
+        ),
+        extra_fn=lambda slots, now, tariff, component, multiplier: day_stats(
+            slots, now, 1, tariff, component, multiplier
+        ),
+    ),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -161,7 +202,46 @@ async def async_setup_entry(
     # sensor below belongs to the entry, not to a tariff type, so it does not
     # inherit from it.
     entities: list[SensorEntity] = []
-    component_map = _collect_components(coordinator.data, tariff_types)
+    # (tariff type, component) pairs that already have their entities. The
+    # component entities depend on what the API answered, and the power tariff
+    # in particular appears only once the grid operator assigns one - possibly
+    # long after this setup ran, or after a first fetch that failed. A
+    # coordinator listener below adds the entities for a component the moment
+    # it first shows up, instead of waiting for the next restart.
+    known_components: set[tuple[str, str]] = set()
+
+    def _component_entities() -> list[SensorEntity]:
+        new: list[SensorEntity] = []
+        component_map = _collect_components(coordinator.data, tariff_types)
+        for tariff_type in tariff_types:
+            for component, unit in sorted(component_map.get(tariff_type, {}).items()):
+                if (tariff_type, component) in known_components:
+                    continue
+                known_components.add((tariff_type, component))
+                new.append(
+                    SwisspowerDynPreisCurrentPriceSensor(
+                        coordinator=coordinator,
+                        entry_id=entry.entry_id,
+                        name=name,
+                        tariff_type=tariff_type,
+                        component=component,
+                        unit=unit,
+                    )
+                )
+                if unit == UNIT_POWER_PRICE:
+                    new.extend(
+                        SwisspowerDynPreisStatSensor(
+                            coordinator=coordinator,
+                            entry_id=entry.entry_id,
+                            name=name,
+                            tariff_type=tariff_type,
+                            description=description,
+                            component=component,
+                        )
+                        for description in POWER_SENSOR_DESCRIPTIONS
+                    )
+        return new
+
     for tariff_type in tariff_types:
         entities.append(
             SwisspowerDynPreisCurrentPriceSensor(
@@ -171,16 +251,6 @@ async def async_setup_entry(
                 tariff_type=tariff_type,
             )
         )
-        for component in sorted(component_map.get(tariff_type, set())):
-            entities.append(
-                SwisspowerDynPreisCurrentPriceSensor(
-                    coordinator=coordinator,
-                    entry_id=entry.entry_id,
-                    name=name,
-                    tariff_type=tariff_type,
-                    component=component,
-                )
-            )
         entities.extend(
             SwisspowerDynPreisStatSensor(
                 coordinator=coordinator,
@@ -202,7 +272,24 @@ async def async_setup_entry(
         )
     )
 
+    entities.extend(_component_entities())
     async_add_entities(entities)
+
+    # The coordinator notifies its listeners at every price boundary as well,
+    # up to 96 times a day, with the same payload. Only a new payload can bring
+    # a new component, so the walk over every slot is skipped for the rest.
+    last_seen: list[Any] = [coordinator.data]
+
+    @callback
+    def _async_add_new_components() -> None:
+        if coordinator.data is last_seen[0]:
+            return
+        last_seen[0] = coordinator.data
+        new = _component_entities()
+        if new:
+            async_add_entities(new)
+
+    entry.async_on_unload(coordinator.async_add_listener(_async_add_new_components))
 
 
 class SwisspowerDynPreisCurrentPriceSensor(SwisspowerDynPreisEntity, SensorEntity):
@@ -226,6 +313,7 @@ class SwisspowerDynPreisCurrentPriceSensor(SwisspowerDynPreisEntity, SensorEntit
         name: str,
         tariff_type: str,
         component: str | None = None,
+        unit: str = UNIT_ENERGY_PRICE,
     ) -> None:
         super().__init__(
             coordinator=coordinator,
@@ -234,15 +322,29 @@ class SwisspowerDynPreisCurrentPriceSensor(SwisspowerDynPreisEntity, SensorEntit
             tariff_type=tariff_type,
         )
         self._component = component
+        # Fixed when the entity is created, from the unit the API declared for
+        # this component. Re-reading it on every render would let one answer
+        # with a missing unit flip the entity between two units.
+        self._unit = unit
+
+    @property
+    def is_power_tariff(self) -> bool:
+        """Return whether this entity shows a power tariff (CHF/kW/month)."""
+        return self._unit == UNIT_POWER_PRICE
 
     @property
     def name(self) -> str:
+        if self.is_power_tariff:
+            return f"{self._name} {self._tariff_type} {power_label(self._component)}"
         if self._component:
             return f"{self._name} {self._tariff_type} {self._component} Current price"
         return f"{self._name} {self._tariff_type} Current price"
 
     @property
     def unique_id(self) -> str:
+        # Unchanged for the power tariff too: an installation that already had
+        # the component entity from before keeps its entity and its history,
+        # and only gains the correct unit and name.
         if self._component:
             return (
                 f"{self._entry_id}_{self._tariff_type}_{self._component}_current_price"
@@ -251,7 +353,11 @@ class SwisspowerDynPreisCurrentPriceSensor(SwisspowerDynPreisEntity, SensorEntit
 
     @property
     def native_unit_of_measurement(self) -> str | None:
-        return "CHF/kWh"
+        return self._unit
+
+    @property
+    def icon(self) -> str | None:
+        return "mdi:transmission-tower" if self.is_power_tariff else None
 
     @property
     def native_value(self) -> float | None:
@@ -292,6 +398,9 @@ class SwisspowerDynPreisCurrentPriceSensor(SwisspowerDynPreisEntity, SensorEntit
         return {
             "tariff_type": self._tariff_type,
             "component": self._component,
+            # So a template or a card can tell a CHF/kWh price from a power
+            # tariff in CHF/kW/month without parsing the entity name.
+            "unit": self._unit,
             # The unfiltered API payload, and the one thing here VAT is never
             # applied to: it is what the supplier sent, net, and the diagnostic
             # raw response sensor has to be able to agree with it.
@@ -337,6 +446,7 @@ class SwisspowerDynPreisStatSensor(SwisspowerDynPreisEntity, SensorEntity):
         name: str,
         tariff_type: str,
         description: SensorDescription,
+        component: str | None = None,
     ) -> None:
         super().__init__(
             coordinator=coordinator,
@@ -344,6 +454,11 @@ class SwisspowerDynPreisStatSensor(SwisspowerDynPreisEntity, SensorEntity):
             name=name,
             tariff_type=tariff_type,
         )
+        # None for the statistics of the energy price, which is what every
+        # entity of a tariff type is about unless it says otherwise. Set for
+        # the power tariff's own statistics, so they read that component and
+        # nothing else.
+        self._component = component
         # Deliberately NOT called ``entity_description``: Home Assistant reads
         # its own fields (has_entity_name, suggested_unit_of_measurement, ...)
         # off that attribute whenever it exists, and SensorDescription is not a
@@ -353,10 +468,20 @@ class SwisspowerDynPreisStatSensor(SwisspowerDynPreisEntity, SensorEntity):
 
     @property
     def name(self) -> str:
+        if self._component and self._component != COMPONENT_POWER:
+            return (
+                f"{self._name} {self._tariff_type} {self._component} "
+                f"{self._description.name}"
+            )
         return f"{self._name} {self._tariff_type} {self._description.name}"
 
     @property
     def unique_id(self) -> str:
+        if self._component:
+            return (
+                f"{self._entry_id}_{self._tariff_type}_{self._component}_"
+                f"{self._description.key}"
+            )
         return f"{self._entry_id}_{self._tariff_type}_{self._description.key}"
 
     @property
@@ -377,7 +502,7 @@ class SwisspowerDynPreisStatSensor(SwisspowerDynPreisEntity, SensorEntity):
             self.price_slots,
             dt_util.now(),
             self._tariff_type,
-            None,
+            self._component,
             self.price_multiplier,
         )
 
@@ -389,7 +514,7 @@ class SwisspowerDynPreisStatSensor(SwisspowerDynPreisEntity, SensorEntity):
             self.price_slots,
             dt_util.now(),
             self._tariff_type,
-            None,
+            self._component,
             self.price_multiplier,
         )
 
@@ -505,13 +630,27 @@ class SwisspowerDynPreisRawResponseSensor(
         return self.coordinator.raw_response_state()
 
 
+def power_label(component: str | None) -> str:
+    """Return the entity name of a power tariff component."""
+    if not component or component == COMPONENT_POWER:
+        return "Power tariff"
+    return f"{component} power tariff"
+
+
 def _collect_components(
     data: dict[str, Any] | None,
     tariff_types: list[str],
-) -> dict[str, set[str]]:
-    """Find the price components the API returned per tariff type."""
-    components: dict[str, set[str]] = {
-        tariff_type: set() for tariff_type in tariff_types
+) -> dict[str, dict[str, str]]:
+    """Find the price components the API returned per tariff type, with their unit.
+
+    The unit is the one the API declared for the component, mapped onto the
+    spelling Home Assistant shows. A component that is a power tariff - by its
+    name or its unit - gets CHF/kW/month even where the API left the unit out,
+    and everything else defaults to CHF/kWh, which is what the entity showed
+    before units were read at all.
+    """
+    components: dict[str, dict[str, str]] = {
+        tariff_type: {} for tariff_type in tariff_types
     }
     if not isinstance(data, dict):
         return components
@@ -522,18 +661,29 @@ def _collect_components(
         slots = tariff_data.get("prices")
         if not isinstance(slots, list):
             continue
+        found = components[tariff_type]
         for slot in slots:
             if not isinstance(slot, dict):
                 continue
             prices = slot.get(tariff_type)
-            if isinstance(prices, list):
-                for price in prices:
-                    if not isinstance(price, dict):
-                        continue
-                    component = price.get("component")
-                    if isinstance(component, str) and component:
-                        components[tariff_type].add(component)
-            component = slot.get("component")
-            if isinstance(component, str) and component:
-                components[tariff_type].add(component)
+            elements = [p for p in prices if isinstance(p, dict)] if isinstance(
+                prices, list
+            ) else []
+            if isinstance(slot.get("component"), str):
+                elements.append(slot)
+            for element in elements:
+                component = element.get("component")
+                if not isinstance(component, str) or not component:
+                    continue
+                if found.get(component) in (UNIT_ENERGY_PRICE, UNIT_POWER_PRICE):
+                    continue
+                found[component] = _component_unit(element)
     return components
+
+
+def _component_unit(element: dict[str, Any]) -> str:
+    """Return the unit an entity for this price element is shown in."""
+    if is_power_price(element):
+        return UNIT_POWER_PRICE
+    unit = normalize_unit(element.get("unit"))
+    return unit or UNIT_ENERGY_PRICE

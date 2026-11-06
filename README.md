@@ -23,13 +23,31 @@ Ein Wizard führt durch die Konfiguration:
 - **Messpunktnummer** (Metering Code) und **Authentifizierungstoken** für den produktiven API-Zugriff oder
 - **Tarifname** (z. B. D1) ohne Token. 
 
+### API-URL
+
+Vorgegeben ist die **Innostrom API v2**:
+`https://portal.dynamische-stromtarife.ch/api/v2`. Abgefragt wird dort
+`/metering_code` mit Messpunktnummer und Token.
+
+Die v2 dokumentiert keine Abfrage über den Tarifnamen. Wer über den
+**Tarifnamen** einrichtet und das Feld auf der Vorgabe lässt, bekommt deshalb
+weiterhin den bisherigen v1-Endpunkt `https://esit.code-fabrik.ch/api/v1`.
+Eine andere, selbst eingetragene URL wird unverändert übernommen.
+
+Bestehende Installationen behalten die URL, mit der sie eingerichtet wurden —
+sie ist Teil der Konfiguration und wird nicht automatisch umgestellt. Das gilt
+auch für sehr frühe Installationen, die noch ohne URL-Feld eingerichtet wurden:
+sie bleiben auf dem v1-Endpunkt. Wer auf
+die v2 wechseln will, entfernt die Integration und richtet sie mit der neuen
+Vorgabe neu ein.
+
 Zusätzlich können die gewünschten Tariftypen ausgewählt werden:
 
 | Tariftyp | Bedeutung |
 | --- | --- |
 | `electricity` | Der Preis für die Energie |
-| `grid` | Netznutzung |
-| `dso` | noch nicht beschrieben — siehe [API-Dokumentation](https://esit.code-fabrik.ch/doc_scalar) |
+| `grid` | Netznutzung (Arbeitspreis und allfälliger [Leistungstarif](#leistungstarif)) |
+| `dso` | Netz + Abgaben |
 | `integrated` | Die Summe aller Bestandteile, inklusive Abgaben |
 | `feed_in` | Der Preis für die Rückvergütung von erzeugter Energie |
 
@@ -58,6 +76,13 @@ Als `sensor.*`:
 
 Alle CHF/kWh-Werte sind die Preise der API, also **ohne MWST** — ausser es ist
 eine [MWST konfiguriert](#mwst-aufschlagen).
+
+Liefert die API für `grid` einen Leistungstarif, kommen drei weitere
+`sensor.*` dazu (Einheit CHF/kW/month) — siehe [Leistungstarif](#leistungstarif):
+
+- **Power tariff**: aktueller Leistungstarif, mit denselben Kurven-Attributen
+  wie **Current price**.
+- **Power tariff average today/tomorrow**: Tagesdurchschnitt (inkl. min/max).
 
 Als `binary_sensor.*`:
 
@@ -91,8 +116,8 @@ Drei Arten von Entities, drei Regeln:
 | Diagnose (**API response**) | immer inaktiv | Trägt zehntausende Zeichen Rohdaten; wer sie braucht, kommt auch ohne Einschalten über den Diagnose-Download dran |
 
 Aktiv sind damit alle CHF/kWh-Sensoren — **Current price** (auch je Komponente),
-**Average price today/tomorrow** und die **Lowest/Highest**-Fenster — sowie der
-Button.
+**Average price today/tomorrow** und die **Lowest/Highest**-Fenster —, die
+Sensoren zum [Leistungstarif](#leistungstarif) sowie der Button.
 
 Inaktiv angelegt werden **Next change** (ein Zeitstempel), **sämtliche
 Binärsensoren** (ein/aus) und **API response**. Bei allen fünf Tariftypen sind
@@ -136,6 +161,8 @@ nicht:
 | Neuer Button `Refresh now` | kommt beim ersten Start dazu, aktiv |
 | Neue Diagnose-Entity `API response` | kommt beim ersten Start dazu, inaktiv |
 | [MWST aufschlagen](#mwst-aufschlagen) | keine; ohne konfigurierten Satz bleibt jeder Preis der Nettopreis der API |
+| [API v2 als Vorgabe](#api-url) | keine; die gespeicherte URL bleibt, die neue Vorgabe gilt nur für neue Einrichtungen |
+| [Leistungstarif](#leistungstarif) | Sensor `… grid power Current price` heisst neu **Power tariff** und hat die Einheit CHF/kW/month statt fälschlich CHF/kWh; Entity-ID und Verlauf bleiben. Zwei Durchschnitts-Sensoren kommen dazu, aktiv |
 
 Die Binärsensoren lagen früher fälschlich in der `sensor`-Domain (mit dem
 Zustand `on`/`off`). Beim ersten Start nach dem Update werden die alten
@@ -147,6 +174,53 @@ Automationen, Skripte und Dashboards, die eine dieser Entities über
 Eine bestehende Installation, die die Zeitstempel- und Ein/Aus-Entities
 loswerden will, muss sie von Hand deaktivieren oder die Integration neu
 einrichten — Home Assistant wendet die neue Vorgabe nicht rückwirkend an.
+
+## Leistungstarif
+
+Ist dem Netz des Messpunkts ein Leistungstarif zugewiesen, liefert die API ihn
+im Feld `grid` als zusätzliches Element neben dem Arbeitspreis (die Zahlen sind
+Platzhalter, keine echten Tarife):
+
+```json
+"grid": [
+  { "value": 0.10, "unit": "CHF_kWh",  "component": "work"  },
+  { "value": 1.00, "unit": "CHF_kW_m", "component": "power" }
+]
+```
+
+Der Leistungstarif ist in CHF pro kW und Monat angegeben und kann sich wie der
+Arbeitspreis von Slot zu Slot ändern. Er ist **nicht** in `dso` oder
+`integrated` eingerechnet. Die Integration macht daraus:
+
+| Entity | Inhalt |
+| --- | --- |
+| `sensor.<name>_grid_power_tariff` | aktueller Leistungstarif, Einheit CHF/kW/month; Attribute wie beim **Current price** (`prices_today`, `prices_tomorrow`, `prices_upcoming`, `price_days`, `tomorrow_valid`, `vat_rate`, …) |
+| `sensor.<name>_grid_power_tariff_average_today` | zeitgewichteter Durchschnitt heute, `min_price`/`max_price` in den Attributen |
+| `sensor.<name>_grid_power_tariff_average_tomorrow` | dasselbe für morgen |
+
+Die Entities entstehen, sobald eine API-Antwort einen Leistungstarif enthält —
+auch wenn das erst nach der Einrichtung der Fall ist, ohne Neustart. Ohne
+Leistungstarif werden sie nicht angelegt.
+
+**Bestehende Installationen:** Wer den Leistungstarif schon vor diesem Update
+von der API bekam, hat dafür bereits einen Sensor
+`sensor.<name>_grid_power_current_price` (damals fälschlich mit CHF/kWh). Er
+behält diese Entity-ID samt Verlauf, bekommt aber die richtige Einheit
+CHF/kW/month und den Namen **Power tariff**. In den Beispielen hier ist dann
+diese ID statt `sensor.<name>_grid_power_tariff` zu verwenden.
+
+Wichtig für alle **anderen** Entities von `grid`: **Current price**, die
+Tagesdurchschnitte, die Lowest/Highest-Fenster und die Binärsensoren beziehen
+sich weiterhin **nur auf den Arbeitspreis** in CHF/kWh. Der Leistungstarif wird
+nie mit ihm vermischt, gleich in welcher Reihenfolge die API die Elemente
+liefert.
+
+Eine konfigurierte [MWST](#mwst-aufschlagen) wird auf den Leistungstarif
+gleich angewendet wie auf den Rest von `grid`: Ist `grid` angehakt, enthält
+auch der Leistungstarif die MWST.
+
+Ein Diagramm des Leistungstarifs funktioniert wie das der Preise (siehe unten),
+nur mit `sensor.<name>_grid_power_tariff` als Entity.
 
 ## Zukünftige Tarife anzeigen
 
@@ -438,8 +512,9 @@ input_number:
 ### Was den Satz bekommt — und was nicht
 
 Angewendet wird er auf **jeden Preis, den die Integration berechnet**: den
-aktuellen Preis (auch je Komponente), die Tagesdurchschnitte samt min/max, die
-Lowest/Highest-Fenster und sämtliche Kurven-Attribute (`prices_today`,
+aktuellen Preis (auch je Komponente), den [Leistungstarif](#leistungstarif),
+die Tagesdurchschnitte samt min/max, die Lowest/Highest-Fenster und sämtliche
+Kurven-Attribute (`prices_today`,
 `prices_tomorrow`, `prices_upcoming`, `price_days`).
 
 Nicht angewendet wird er auf:
@@ -576,10 +651,13 @@ Log-URLs maskiert.
 
 ## Weiterführende Links 
 
-Die API-Dokumentation findet sich unter:
+Server der Innostrom API v2 (Vorgabe):
+https://portal.dynamische-stromtarife.ch/api/v2
+
+Dokumentation der bisherigen v1-API:
 https://esit.code-fabrik.ch/doc_scalar
 
-Für Tests (z. B. bei von Codex generiertem Code) kann folgende Basis-URL verwendet werden:
+Für Tests mit der v1-API kann folgende Basis-URL verwendet werden:
 https://esit-test.code-fabrik.ch/api/v1
 
 übersicht EVU mit Dynamischen Tarifen:

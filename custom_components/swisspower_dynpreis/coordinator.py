@@ -37,7 +37,7 @@ from homeassistant.util import dt as dt_util
 
 from .api import SwisspowerDynPreisApiClient
 from .const import (
-    API_BASE,
+    API_BASE_V1,
     BACKOFF_MAX_TRIES,
     BACKOFF_MINUTES,
     CONF_API_URL,
@@ -90,7 +90,10 @@ class SwisspowerDynPreisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         self._entry = entry
         self._method = entry_data[CONF_METHOD]
-        self._api_url = entry_data.get(CONF_API_URL, API_BASE)
+        # An entry without a stored URL predates the URL field, and every such
+        # entry was set up against v1 - whatever its method. Falling back to
+        # the current default would move it to another host on update.
+        self._api_url = entry_data.get(CONF_API_URL) or API_BASE_V1
         self._metering_code = entry_data.get(CONF_METERING_CODE)
         self._tariff_name = entry_data.get(CONF_TARIFF_NAME)
         self._tariff_types = entry_data[CONF_TARIFF_TYPES]
