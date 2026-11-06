@@ -325,7 +325,10 @@ async def test_no_power_tariff_no_power_entities(
 
 
 async def test_a_power_tariff_that_appears_later_is_added_without_a_restart(
-    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
+    hass: HomeAssistant,
+    api: FakeApi,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The grid operator assigns a power tariff; the next fetch carries it."""
     await set_time_zone(hass)
@@ -349,8 +352,10 @@ async def test_a_power_tariff_that_appears_later_is_added_without_a_restart(
         (4 * 9.0 + 20 * 2.0) / 24
     )
 
-    # A second fetch with the same components adds nothing twice.
-    before = len(hass.states.async_entity_ids())
+    # A second fetch with the same components adds nothing twice. Counting
+    # states would not show it - Home Assistant drops an entity whose unique id
+    # already exists - but it logs an error for every one it drops.
+    caplog.clear()
     await hass.services.async_call(
         Platform.BUTTON,
         "press",
@@ -358,18 +363,13 @@ async def test_a_power_tariff_that_appears_later_is_added_without_a_restart(
         blocking=True,
     )
     await hass.async_block_till_done()
-    assert len(hass.states.async_entity_ids()) == before
+    assert "already exists" not in caplog.text
 
 
-async def test_an_existing_power_component_entity_keeps_its_identity(
+async def test_a_fresh_install_gets_the_new_entity_ids(
     hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
 ) -> None:
-    """Before this change the power element already made a component entity.
-
-    It was named "grid power Current price" and claimed CHF/kWh. Its unique id
-    must not change, so an installation keeps the entity and its history and
-    only gets the right unit.
-    """
+    """The unique id of the current value is the one the component entity had."""
     await set_time_zone(hass)
     api.publish(TODAY, grid_slots(TODAY, work_curve(), power_curve()), tariff_type="grid")
     entry = make_entry(tariff_types=["grid"])
@@ -378,13 +378,50 @@ async def test_an_existing_power_component_entity_keeps_its_identity(
     await setup_integration(hass, entry)
 
     registry = er.async_get(hass)
-    entity_id = registry.async_get_entity_id(
+    assert registry.async_get_entity_id(
         Platform.SENSOR, DOMAIN, f"{entry.entry_id}_grid_power_current_price"
-    )
-    assert entity_id == POWER_TARIFF
+    ) == POWER_TARIFF
     assert registry.async_get_entity_id(
         Platform.SENSOR, DOMAIN, f"{entry.entry_id}_grid_power_avg_today"
     ) == POWER_AVG_TODAY
+
+
+async def test_an_existing_power_component_entity_keeps_its_identity(
+    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
+) -> None:
+    """Before this change the power element already made a component entity.
+
+    It was named "grid power Current price" and claimed CHF/kWh. An install
+    that has it keeps that entity id and its history, gets the right unit, and
+    does not get a second entity for the same value.
+    """
+    await set_time_zone(hass)
+    api.publish(TODAY, grid_slots(TODAY, work_curve(), power_curve()), tariff_type="grid")
+    entry = make_entry(tariff_types=["grid"])
+    entry.add_to_hass(hass)
+
+    registry = er.async_get(hass)
+    legacy = registry.async_get_or_create(
+        Platform.SENSOR,
+        DOMAIN,
+        f"{entry.entry_id}_grid_power_current_price",
+        config_entry=entry,
+        suggested_object_id="test_grid_power_current_price",
+        unit_of_measurement=UNIT_ENERGY_PRICE,
+    )
+    assert legacy.entity_id == "sensor.test_grid_power_current_price"
+
+    freezer.move_to(at(2026, 9, 7, 18, 30))
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(legacy.entity_id)
+    assert state is not None
+    assert float(state.state) == 9.0
+    assert state.attributes["unit_of_measurement"] == UNIT_POWER_PRICE
+    assert hass.states.get(POWER_TARIFF) is None
+    # The averages are new, so they get the new names.
+    assert hass.states.get(POWER_AVG_TODAY) is not None
 
 
 async def test_the_power_tariff_is_on_by_default(

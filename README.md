@@ -181,7 +181,14 @@ Arbeitspreis von Slot zu Slot ändern. Er ist **nicht** in `dso` oder
 
 Die Entities entstehen, sobald eine API-Antwort einen Leistungstarif enthält —
 auch wenn das erst nach der Einrichtung der Fall ist, ohne Neustart. Ohne
-Leistungstarif gibt es sie nicht.
+Leistungstarif werden sie nicht angelegt.
+
+**Bestehende Installationen:** Wer den Leistungstarif schon vor diesem Update
+von der API bekam, hat dafür bereits einen Sensor
+`sensor.<name>_grid_power_current_price` (damals fälschlich mit CHF/kWh). Er
+behält diese Entity-ID samt Verlauf, bekommt aber die richtige Einheit
+CHF/kW/month und den Namen **Power tariff**. In den Beispielen hier ist dann
+diese ID statt `sensor.<name>_grid_power_tariff` zu verwenden.
 
 Wichtig für alle **anderen** Entities von `grid`: **Current price**, die
 Tagesdurchschnitte, die Lowest/Highest-Fenster und die Binärsensoren beziehen
