@@ -30,12 +30,13 @@ API_BASE = "https://portal.dynamische-stromtarife.ch/api/v2"
 # The v1 endpoint the integration used before. API v2 documents no
 # /tariff_name endpoint, so a setup by tariff name - which needs no token -
 # stays here when the URL field is left at its default. Setups that stored this
-# URL keep it: the URL is part of the config entry and is not migrated.
+# URL keep it: the URL is part of the config entry and is not migrated. Entries
+# from before the URL field existed have none stored and stay on v1 as well.
 API_BASE_V1 = "https://esit.code-fabrik.ch/api/v1"
 
 
 def default_api_base(method: str | None) -> str:
-    """Return the endpoint a request method uses when no URL was chosen."""
+    """Return the endpoint the setup form resolves its default URL to."""
     if method == METHOD_TARIFF_NAME:
         return API_BASE_V1
     return API_BASE

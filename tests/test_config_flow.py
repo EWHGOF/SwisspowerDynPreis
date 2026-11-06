@@ -286,10 +286,70 @@ async def test_a_typed_url_is_kept_as_it_is(
     ("method", "expected"),
     [(METHOD_METERING_CODE, API_BASE), (METHOD_TARIFF_NAME, API_BASE_V1)],
 )
-def test_an_entry_without_a_stored_url_gets_its_methods_default(
-    method: str, expected: str
-) -> None:
+def test_the_form_default_resolves_per_method(method: str, expected: str) -> None:
     assert default_api_base(method) == expected
+
+
+@pytest.mark.parametrize("method", [METHOD_METERING_CODE, METHOD_TARIFF_NAME])
+async def test_an_entry_without_a_stored_url_stays_on_v1(
+    hass: HomeAssistant, method: str
+) -> None:
+    """Entries from before the URL field have none stored, and were v1 entries.
+
+    Resolving them to the new default would move a metering code entry, token
+    and all, to another host on update without anyone having asked for it.
+    """
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.swisspower_dynpreis.coordinator import (
+        SwisspowerDynPreisCoordinator,
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Test",
+        data={
+            CONF_NAME: "Test",
+            CONF_METHOD: method,
+            CONF_METERING_CODE: "CH123",
+            CONF_TOKEN: "secret",
+            CONF_TARIFF_NAME: "D1",
+            CONF_TARIFF_TYPES: ["electricity"],
+        },
+    )
+    entry.add_to_hass(hass)
+    coordinator = SwisspowerDynPreisCoordinator(hass, entry)
+    try:
+        assert coordinator._api_url == API_BASE_V1
+    finally:
+        coordinator._async_cancel_timers()
+
+
+async def test_a_stored_url_is_used_as_it_is(hass: HomeAssistant) -> None:
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.swisspower_dynpreis.coordinator import (
+        SwisspowerDynPreisCoordinator,
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Test",
+        data={
+            CONF_NAME: "Test",
+            CONF_METHOD: METHOD_METERING_CODE,
+            CONF_API_URL: API_BASE,
+            CONF_METERING_CODE: "CH123",
+            CONF_TOKEN: "secret",
+            CONF_TARIFF_TYPES: ["electricity"],
+        },
+    )
+    entry.add_to_hass(hass)
+    coordinator = SwisspowerDynPreisCoordinator(hass, entry)
+    try:
+        assert coordinator._api_url == API_BASE
+    finally:
+        coordinator._async_cancel_timers()
 
 
 async def test_the_client_builds_the_v2_request(hass: HomeAssistant) -> None:

@@ -32,10 +32,12 @@ Vorgegeben ist die **Innostrom API v2**:
 Die v2 dokumentiert keine Abfrage über den Tarifnamen. Wer über den
 **Tarifnamen** einrichtet und das Feld auf der Vorgabe lässt, bekommt deshalb
 weiterhin den bisherigen v1-Endpunkt `https://esit.code-fabrik.ch/api/v1`.
-Eine selbst eingetragene URL wird immer unverändert übernommen.
+Eine andere, selbst eingetragene URL wird unverändert übernommen.
 
 Bestehende Installationen behalten die URL, mit der sie eingerichtet wurden —
-sie ist Teil der Konfiguration und wird nicht automatisch umgestellt. Wer auf
+sie ist Teil der Konfiguration und wird nicht automatisch umgestellt. Das gilt
+auch für sehr frühe Installationen, die noch ohne URL-Feld eingerichtet wurden:
+sie bleiben auf dem v1-Endpunkt. Wer auf
 die v2 wechseln will, entfernt die Integration und richtet sie mit der neuen
 Vorgabe neu ein.
 
