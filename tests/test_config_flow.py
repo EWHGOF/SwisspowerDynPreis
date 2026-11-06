@@ -290,25 +290,39 @@ def test_the_form_default_resolves_per_method(method: str, expected: str) -> Non
     assert default_api_base(method) == expected
 
 
+async def _requested_base(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    data: dict,
+) -> str:
+    """Set the entry up for real and return the base URL its client asks.
+
+    Set up through Home Assistant rather than by building the coordinator by
+    hand: a hand-built one arms timers no unload ever cancels, which Home
+    Assistant 2024.3 reports as a lingering timer.
+    """
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    await set_time_zone(hass)
+    freezer.move_to(at(2026, 9, 7, 10, 30))
+    entry = MockConfigEntry(domain=DOMAIN, title="Test", data=data)
+    await setup_integration(hass, entry)
+    return hass.data[DOMAIN][entry.entry_id]._client._api_base
+
+
 @pytest.mark.parametrize("method", [METHOD_METERING_CODE, METHOD_TARIFF_NAME])
 async def test_an_entry_without_a_stored_url_stays_on_v1(
-    hass: HomeAssistant, method: str
+    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory, method: str
 ) -> None:
     """Entries from before the URL field have none stored, and were v1 entries.
 
     Resolving them to the new default would move a metering code entry, token
     and all, to another host on update without anyone having asked for it.
     """
-    from pytest_homeassistant_custom_component.common import MockConfigEntry
-
-    from custom_components.swisspower_dynpreis.coordinator import (
-        SwisspowerDynPreisCoordinator,
-    )
-
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test",
-        data={
+    base = await _requested_base(
+        hass,
+        freezer,
+        {
             CONF_NAME: "Test",
             CONF_METHOD: method,
             CONF_METERING_CODE: "CH123",
@@ -317,25 +331,16 @@ async def test_an_entry_without_a_stored_url_stays_on_v1(
             CONF_TARIFF_TYPES: ["electricity"],
         },
     )
-    entry.add_to_hass(hass)
-    coordinator = SwisspowerDynPreisCoordinator(hass, entry)
-    try:
-        assert coordinator._api_url == API_BASE_V1
-    finally:
-        coordinator._async_cancel_timers()
+    assert base == API_BASE_V1
 
 
-async def test_a_stored_url_is_used_as_it_is(hass: HomeAssistant) -> None:
-    from pytest_homeassistant_custom_component.common import MockConfigEntry
-
-    from custom_components.swisspower_dynpreis.coordinator import (
-        SwisspowerDynPreisCoordinator,
-    )
-
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test",
-        data={
+async def test_a_stored_url_is_used_as_it_is(
+    hass: HomeAssistant, api: FakeApi, freezer: FrozenDateTimeFactory
+) -> None:
+    base = await _requested_base(
+        hass,
+        freezer,
+        {
             CONF_NAME: "Test",
             CONF_METHOD: METHOD_METERING_CODE,
             CONF_API_URL: API_BASE,
@@ -344,12 +349,7 @@ async def test_a_stored_url_is_used_as_it_is(hass: HomeAssistant) -> None:
             CONF_TARIFF_TYPES: ["electricity"],
         },
     )
-    entry.add_to_hass(hass)
-    coordinator = SwisspowerDynPreisCoordinator(hass, entry)
-    try:
-        assert coordinator._api_url == API_BASE
-    finally:
-        coordinator._async_cancel_timers()
+    assert base == API_BASE
 
 
 async def test_the_client_builds_the_v2_request(hass: HomeAssistant) -> None:
